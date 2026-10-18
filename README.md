@@ -146,3 +146,59 @@ Super admin выдаёт login и пароль, по которому будет
 
 ### Список админов
 ФИО, номер общаги, login + пароль, контактные данные.
+
+
+
+### Стек технологий
+
+-Backend: Go (основной API), Python Flask (аналитика), C++ (вспомогательный сервис)
+-БД: PostgreSQL
+-Frontend: веб-клиент
+-Контейнеризация и запуск: Docker
+
+
+### Архитектура
+
+[Клиент] ──HTTP──> [go-api :8080] ──HTTP──> [python-reports :5000]
+                         │
+                         └──HTTP──> [cpp-service :8081]
+                         │
+                         ▼
+                   [PostgreSQL]
+
+| Компонент | Каталог | Ответственный |
+|-----------|---------|---------------|
+| Go API (шлюз) | `go-api/` | Кирилл |
+| Python аналитика | `python-reports/` | Елена |
+| C++ сервис | `cpp-service/` | Павел |
+
+
+dorm-requests/
+├── go-api/                  # Кирилл: основной API
+│   └── Dockerfile
+├── python-reports/          # Лена: аналитика
+│   └── Dockerfile
+├── cpp-service/             # Павел: 
+│   ├── src/
+│   ├── build/
+│   ├── CMakeLists.txt
+│   └── Dockerfile
+├── docker-compose.yml       # Оркестрация всех сервисов
+├── .env.example
+├── migrations/              # SQL-миграции (общие)
+└── README.md
+
+[Браузер]
+   │ HTTP
+   ▼
+[Go :8080]  ← сервер для браузера
+   │
+   ├── HTTP ──► [C++ :8081]   ← Go клиент, C++ сервер
+   │
+   └── HTTP ──► [Python :5000] ← Go клиент, Python сервер
+   │
+   └── SQL ──► [PostgreSQL]
+
+### Структура БД
+//Todo
+
