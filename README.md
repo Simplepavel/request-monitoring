@@ -173,6 +173,7 @@ Super admin выдаёт login и пароль, по которому будет
 | C++ сервис | `cpp-service/` | Павел |
 
 
+...
 dorm-requests/
 ├── go-api/                  # Кирилл: основной API
 │   └── Dockerfile
@@ -187,10 +188,12 @@ dorm-requests/
 ├── .env.example
 ├── migrations/              # SQL-миграции (общие)
 └── README.md
+...
 
+...
 [Браузер]
    │ HTTP
-   ▼
+   ▼S
 [Go :8080]  ← сервер для браузера
    │
    ├── HTTP ──► [C++ :8081]   ← Go клиент, C++ сервер
@@ -198,7 +201,7 @@ dorm-requests/
    └── HTTP ──► [Python :5000] ← Go клиент, Python сервер
    │
    └── SQL ──► [PostgreSQL]
-
+...
 ### Структура БД
 //Todo
 
