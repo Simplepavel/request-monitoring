@@ -159,13 +159,6 @@ Super admin выдаёт login и пароль, по которому будет
 
 ### Архитектура
 
-[Клиент] ──HTTP──> [go-api :8080] ──HTTP──> [python-reports :5000]
-                         │
-                         └──HTTP──> [cpp-service :8081]
-                         │
-                         ▼
-                   [PostgreSQL]
-
 | Компонент | Каталог | Ответственный |
 |-----------|---------|---------------|
 | Go API (шлюз) | `go-api/` | Кирилл |
@@ -173,8 +166,8 @@ Super admin выдаёт login и пароль, по которому будет
 | C++ сервис | `cpp-service/` | Павел |
 
 
-...
-dorm-requests/
+```
+request-monitoring/
 ├── go-api/                  # Кирилл: основной API
 │   └── Dockerfile
 ├── python-reports/          # Лена: аналитика
@@ -188,20 +181,7 @@ dorm-requests/
 ├── .env.example
 ├── migrations/              # SQL-миграции (общие)
 └── README.md
-...
-
-...
-[Браузер]
-   │ HTTP
-   ▼S
-[Go :8080]  ← сервер для браузера
-   │
-   ├── HTTP ──► [C++ :8081]   ← Go клиент, C++ сервер
-   │
-   └── HTTP ──► [Python :5000] ← Go клиент, Python сервер
-   │
-   └── SQL ──► [PostgreSQL]
-...
+```
 ### Структура БД
 //Todo
 
