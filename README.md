@@ -168,20 +168,16 @@ Super admin выдаёт login и пароль, по которому будет
 
 ```
 request-monitoring/
-├── go-api/                  # Кирилл: основной API
+├── go-api/                  # Кирилл: golang(основной API)
 │   └── Dockerfile
-├── python-reports/          # Лена: аналитика
+├── python-reports/          # Лена: python(сбок аналитики и отчетность)
 │   └── Dockerfile
-├── cpp-service/             # Павел: 
-│   ├── src/
-│   ├── build/
-│   ├── CMakeLists.txt
+├── cpp-service/             # Павел: c++(оценка приоритета)
 │   └── Dockerfile
 ├── docker-compose.yml       # Оркестрация всех сервисов
 ├── .env.example
 ├── migrations/              # SQL-миграции (общие)
 └── README.md
 ```
-### Структура БД
-//Todo
+
 
