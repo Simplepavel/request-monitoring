@@ -8,38 +8,40 @@ import (
 	"time"
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/handlers"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-
 )
 
 func main() {
-	godotenv.Load("../.env")
+	_ = godotenv.Load("../.env")
 
 	databaseURL := os.Getenv("DATABASE_URL")
-
 	if databaseURL == "" {
-		log.Fatal("не задана переменная датабейс")
-
+		log.Fatal("Не задана переменная DATABASE_URL")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
 	db, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
+		cancel()
 		log.Fatal("Ошибка настройки подключения к БД: ", err)
+	}
+
+	err = db.Ping(ctx)
+	cancel()
+
+	if err != nil {
+		db.Close()
+		log.Fatal("Не удалось подключиться к БД: ", err)
 	}
 	defer db.Close()
 
+	log.Println("Подключение к PostgreSQL установлено")
 
-	err = db.Ping(ctx)
-	if err != nil {
-		log.Fatal("не удалось подключиться к БД: ", err)
-	}
-
-	log.Println("подключение к PostgreSQL установлено")
-
-
+	repo := repository.New(db)
+	h := handlers.New(repo)
 
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -47,13 +49,14 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", handlers.Health)
-	mux.HandleFunc("GET /dormitories", func(w http.ResponseWriter, r *http.Request) {
-		handlers.GetDormitories(w, r, db)
-	})
+	mux.HandleFunc("GET /health", h.Health)
+	mux.HandleFunc("GET /dormitories", h.GetDormitories)
+	mux.HandleFunc("GET /positions", h.GetPositions)
+
+	log.Println("HTTP-сервер запущен на порту", port)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Ошибка HTTP-сервера: ", err)
 	}
 }

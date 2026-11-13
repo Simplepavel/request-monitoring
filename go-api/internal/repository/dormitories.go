@@ -1,41 +1,37 @@
 package repository
 
-import (
-	"context"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-)
+import "context"
 
 type Dormitory struct {
-	Id int64 `json:"id"`
-	Number int `json:"number"`
+	ID     int64 `json:"id"`
+	Number int   `json:"number"`
 }
 
-func GetDormitories(ctx context.Context, db *pgxpool.Pool) ([]Dormitory, error){
+func (repo *Repository) GetDormitories(ctx context.Context) ([]Dormitory, error) {
 	query := `SELECT id, number FROM dormitories ORDER BY number`
 
-	rows, err := db.Query(ctx, query)
+	rows, err := repo.db.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	dormitories := make([]Dormitory, 0)
+
 	for rows.Next() {
 		var dormitory Dormitory
-		err := rows.Scan(&dormitory.Id, &dormitory.Number)
+
+		err := rows.Scan(&dormitory.ID, &dormitory.Number)
 		if err != nil {
 			return nil, err
 		}
+
 		dormitories = append(dormitories, dormitory)
 	}
 
-	err = rows.Err()
-	if err != nil{
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	return dormitories, nil
 }
-
-
