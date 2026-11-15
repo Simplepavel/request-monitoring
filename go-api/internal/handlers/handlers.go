@@ -3,20 +3,22 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
 	"log"
 	"net/http"
 	"time"
-
-	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 )
 
 type Handler struct {
-	repo *repository.Repository
+	repo        *repository.Repository
+	authService *service.AuthService
 }
 
-func New(repo *repository.Repository) *Handler {
+func New(repo *repository.Repository, authService *service.AuthService) *Handler {
 	return &Handler{
-		repo: repo,
+		repo:        repo,
+		authService: authService,
 	}
 }
 
@@ -29,7 +31,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewEncoder(w).Encode(response)
 	if err != nil {
-		log.Printf("Ошибка отправки ответа: %v", err)
+		log.Printf("ошибка отправки ответа: %v", err)
 	}
 }
 
@@ -39,7 +41,7 @@ func (h *Handler) GetDormitories(w http.ResponseWriter, r *http.Request) {
 
 	dormitories, err := h.repo.GetDormitories(ctx)
 	if err != nil {
-		log.Printf("Ошибка получения общежитий: %v", err)
+		log.Printf("ошибка получения общежитий: %v", err)
 		http.Error(w, "Не удалось получить общежития", http.StatusInternalServerError)
 		return
 	}
@@ -48,7 +50,7 @@ func (h *Handler) GetDormitories(w http.ResponseWriter, r *http.Request) {
 
 	err = json.NewEncoder(w).Encode(dormitories)
 	if err != nil {
-		log.Printf("Ошибка отправки ответа: %v", err)
+		log.Printf("ошибка отправки ответа: %v", err)
 	}
 }
 

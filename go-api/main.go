@@ -9,6 +9,8 @@ import (
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/handlers"
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -41,7 +43,8 @@ func main() {
 	log.Println("Подключение к PostgreSQL установлено")
 
 	repo := repository.New(db)
-	h := handlers.New(repo)
+	authService := service.NewAuthService(repo)
+	h := handlers.New(repo, authService)
 
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -52,6 +55,7 @@ func main() {
 	mux.HandleFunc("GET /health", h.Health)
 	mux.HandleFunc("GET /dormitories", h.GetDormitories)
 	mux.HandleFunc("GET /positions", h.GetPositions)
+	mux.HandleFunc("POST /auth/register", h.RegisterResident)
 
 	log.Println("HTTP-сервер запущен на порту", port)
 
