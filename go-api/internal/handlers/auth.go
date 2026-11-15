@@ -117,9 +117,22 @@ func (h *Handler) RegisterResident(w http.ResponseWriter, r *http.Request) {
 		Email:      req.Email,
 		Password:   req.Password,
 	})
+	if errors.Is(err, service.ErrEmailAlreadyExists) {
+		writeJSONError(
+			w,
+			http.StatusConflict,
+			"пользователь с такой почтой уже зарегистрирован",
+		)
+		return
+	}
+	
 	if err != nil {
-		log.Printf("Ошибка регистрации жителя: %v", err)
-		writeJSONError(w, http.StatusInternalServerError, "Не удалось зарегистрироваться")
+		log.Printf("ошибка регистрации жителя: %v", err)
+		writeJSONError(
+			w,
+			http.StatusInternalServerError,
+			"Не удалось зарегистрироваться",
+		)
 		return
 	}
 

@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
+var ErrEmailAlreadyExists = errors.New("email already exists")
 type AuthService struct {
 	repo *repository.Repository
 }
@@ -49,6 +51,9 @@ func (service *AuthService) RegisterResident(
 	}
 
 	userID, err := service.repo.CreateResident(ctx, user)
+	if errors.Is(err, repository.ErrEmailAlreadyExists) {
+		return 0, ErrEmailAlreadyExists
+	}
 	if err != nil {
 		return 0, fmt.Errorf("зарегистрировать жителя: %w", err)
 	}

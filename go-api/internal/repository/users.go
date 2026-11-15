@@ -2,8 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var ErrEmailAlreadyExists = errors.New("email already exists")
 
 type NewResident struct {
 	LastName     string
@@ -43,6 +48,14 @@ func (repo *Repository) CreateResident(ctx context.Context, user NewResident) (i
 		user.PasswordHash,
 	).Scan(&userID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+	
+		if errors.As(err, &pgErr) &&
+			pgErr.Code == "23505" &&
+			pgErr.ConstraintName == "users_email_key" {
+			return 0, ErrEmailAlreadyExists
+		}
+	
 		return 0, fmt.Errorf("создать пользователя: %w", err)
 	}
 
