@@ -77,6 +77,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignExecutor)),
 	)
 
+	mux.Handle(
+		"POST /admin/admins",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignAdmin)),
+	)
+
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)
