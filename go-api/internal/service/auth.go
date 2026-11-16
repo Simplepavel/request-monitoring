@@ -7,16 +7,30 @@ import (
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/golang-jwt/jwt/v5"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrEmailAlreadyExists = errors.New("email already exists")
+var ErrInvalidCredentials = errors.New("invalid email or password")
+
 type AuthService struct {
-	repo *repository.Repository
+	repo      *repository.Repository
+	jwtSecret []byte
+}
+type accessTokenClaims struct {
+	UserID int64 `json:"user_id"`
+	jwt.RegisteredClaims
 }
 
-func NewAuthService(repo *repository.Repository) *AuthService {
+func NewAuthService(repo *repository.Repository, jwtSecret string) *AuthService {
 	return &AuthService{
-		repo: repo,
+		repo:      repo,
+		jwtSecret: []byte(jwtSecret),
 	}
 }
 
@@ -59,4 +73,59 @@ func (service *AuthService) RegisterResident(
 	}
 
 	return userID, nil
+}
+
+type LoginInput struct {
+	Email    string
+	Password string
+}
+
+func (service *AuthService) Login(
+	ctx context.Context,
+	input LoginInput,
+) (string, error) {
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+
+	user, err := service.repo.GetUserCredentialsByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidCredentials
+	}
+	if err != nil {
+		return "", fmt.Errorf("получить данные для входа: %w", err)
+	}
+
+	if !user.IsActive {
+		return "", ErrInvalidCredentials
+	}
+
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(input.Password),
+	)
+	if err != nil {
+		return "", ErrInvalidCredentials
+	}
+
+	return service.createAccessToken(user.ID)
+}
+
+func (service *AuthService) createAccessToken(userID int64) (string, error) {
+	now := time.Now()
+
+	claims := accessTokenClaims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(30 * time.Minute)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	tokenString, err := token.SignedString(service.jwtSecret)
+	if err != nil {
+		return "", fmt.Errorf("создать токен доступа: %w", err)
+	}
+
+	return tokenString, nil
 }

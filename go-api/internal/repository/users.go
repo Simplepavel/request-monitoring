@@ -78,3 +78,32 @@ func (repo *Repository) CreateResident(ctx context.Context, user NewResident) (i
 
 	return userID, nil
 }
+
+type UserCredentials struct {
+	ID           int64
+	PasswordHash string
+	IsActive     bool
+}
+
+func (repo *Repository) GetUserCredentialsByEmail(
+	ctx context.Context,
+	email string,
+) (UserCredentials, error) {
+	var user UserCredentials
+
+	err := repo.db.QueryRow(ctx, `
+		SELECT id, password_hash, is_active
+		FROM users
+		WHERE email = $1
+	`, email).Scan(
+		&user.ID,
+		&user.PasswordHash,
+		&user.IsActive,
+	)
+	if err != nil {
+		return UserCredentials{}, fmt.Errorf("найти пользователя для входа: %w", err)
+	}
+
+	return user, nil
+}
+

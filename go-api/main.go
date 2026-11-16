@@ -23,6 +23,11 @@ func main() {
 		log.Fatal("Не задана переменная DATABASE_URL")
 	}
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET не задан или слишком короткий")
+}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
 	db, err := pgxpool.New(ctx, databaseURL)
@@ -43,7 +48,7 @@ func main() {
 	log.Println("Подключение к PostgreSQL установлено")
 
 	repo := repository.New(db)
-	authService := service.NewAuthService(repo)
+	authService := service.NewAuthService(repo, jwtSecret)
 	h := handlers.New(repo, authService)
 
 	port := os.Getenv("API_PORT")
@@ -56,6 +61,8 @@ func main() {
 	mux.HandleFunc("GET /dormitories", h.GetDormitories)
 	mux.HandleFunc("GET /positions", h.GetPositions)
 	mux.HandleFunc("POST /auth/register", h.RegisterResident)
+
+	mux.HandleFunc("POST /auth/login", h.Login)
 
 	log.Println("HTTP-сервер запущен на порту", port)
 

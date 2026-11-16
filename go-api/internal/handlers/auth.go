@@ -156,3 +156,56 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 		"error": message,
 	})
 }
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+}
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req loginRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный JSON")
+		return
+	}
+
+	if strings.TrimSpace(req.Email) == "" || req.Password == "" {
+		writeJSONError(w, http.StatusBadRequest, "Почта и пароль обязательны")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	token, err := h.authService.Login(ctx, service.LoginInput{
+		Email:    req.Email,
+		Password: req.Password,
+	})
+	if errors.Is(err, service.ErrInvalidCredentials) {
+		writeJSONError(w, http.StatusUnauthorized, "Неверная почта или пароль")
+		return
+	}
+	if err != nil {
+		log.Printf("Ошибка входа: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось выполнить вход")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	err = json.NewEncoder(w).Encode(loginResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+	})
+	if err != nil {
+		log.Printf("Ошибка отправки ответа: %v", err)
+	}
+}
