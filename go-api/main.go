@@ -11,9 +11,9 @@ import (
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
 
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if len(jwtSecret) < 32 {
 		log.Fatal("JWT_SECRET не задан или слишком короткий")
-}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -50,7 +50,8 @@ func main() {
 
 	repo := repository.New(db)
 	authService := service.NewAuthService(repo, jwtSecret)
-	h := handlers.New(repo, authService)
+	adminService := service.NewAdminService(repo)
+	h := handlers.New(repo, authService, adminService)
 
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -65,12 +66,16 @@ func main() {
 
 	mux.HandleFunc("POST /auth/login", h.Login)
 
-
 	mux.Handle(
 		"GET /auth/me",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.CurrentUser)),
 	)
 	log.Println("HTTP-сервер запущен на порту", port)
+
+	mux.Handle(
+		"POST /admin/executors",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignExecutor)),
+	)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
