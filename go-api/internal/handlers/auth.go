@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"regexp"
 	"strings"
 	"time"
@@ -204,6 +205,28 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	err = json.NewEncoder(w).Encode(loginResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",
+	})
+	if err != nil {
+		log.Printf("Ошибка отправки ответа: %v", err)
+	}
+}
+
+
+type currentUserResponse struct {
+	UserID int64 `json:"user_id"`
+}
+
+func (h *Handler) CurrentUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "не удалось определить пользователя")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	err := json.NewEncoder(w).Encode(currentUserResponse{
+		UserID: userID,
 	})
 	if err != nil {
 		log.Printf("Ошибка отправки ответа: %v", err)

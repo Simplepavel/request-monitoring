@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 )
 
 func main() {
@@ -64,10 +65,15 @@ func main() {
 
 	mux.HandleFunc("POST /auth/login", h.Login)
 
+
+	mux.Handle(
+		"GET /auth/me",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.CurrentUser)),
+	)
 	log.Println("HTTP-сервер запущен на порту", port)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
-		log.Fatal("Ошибка HTTP-сервера: ", err)
+		log.Fatal("Ошибка HTTP-се рвера: ", err)
 	}
 }

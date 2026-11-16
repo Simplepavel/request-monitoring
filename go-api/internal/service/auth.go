@@ -15,8 +15,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var ErrEmailAlreadyExists = errors.New("email already exists")
-var ErrInvalidCredentials = errors.New("invalid email or password")
+var(
+	ErrEmailAlreadyExists = errors.New("email already exists")
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrInvalidToken = errors.New("invalid token")
+)
 
 type AuthService struct {
 	repo      *repository.Repository
@@ -128,4 +131,29 @@ func (service *AuthService) createAccessToken(userID int64) (string, error) {
 	}
 
 	return tokenString, nil
+}
+
+
+func (service *AuthService) UserIDFromAccessToken(tokenString string) (int64, error) {
+	claims := &accessTokenClaims{}
+
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		claims,
+		func(token *jwt.Token) (any, error) {
+			return service.jwtSecret, nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	)
+
+	if err != nil || token == nil || !token.Valid {
+		return 0, ErrInvalidToken
+	}
+
+	if claims.UserID <= 0 {
+		return 0, ErrInvalidToken
+	}
+
+	return claims.UserID, nil
 }

@@ -1,0 +1,47 @@
+package middleware
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+
+	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
+)
+
+type contextKey string
+
+const userIDKey contextKey = "userID"
+
+func RequireAuth(authService *service.AuthService, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			writeUnauthorized(w)
+			return
+		}
+
+		userID, err := authService.UserIDFromAccessToken(parts[1])
+		if err != nil {
+			writeUnauthorized(w)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	userID, ok := ctx.Value(userIDKey).(int64)
+	return userID, ok
+}
+
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": "необходим вход в систему",
+	})
+}
