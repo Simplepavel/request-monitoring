@@ -51,7 +51,8 @@ func main() {
 	repo := repository.New(db)
 	authService := service.NewAuthService(repo, jwtSecret)
 	adminService := service.NewAdminService(repo)
-	h := handlers.New(repo, authService, adminService)
+	ticketService := service.NewTicketService(repo)
+	h := handlers.New(repo, authService, adminService, ticketService)
 
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -80,6 +81,11 @@ func main() {
 	mux.Handle(
 		"POST /admin/admins",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignAdmin)),
+	)
+
+	mux.Handle(
+		"POST /tickets",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.CreateTicket)),
 	)
 
 	err = http.ListenAndServe(":"+port, mux)

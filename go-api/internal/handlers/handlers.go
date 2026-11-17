@@ -11,16 +11,18 @@ import (
 )
 
 type Handler struct {
-	repo         *repository.Repository
-	authService  *service.AuthService
-	adminService *service.AdminService
+	repo          *repository.Repository
+	authService   *service.AuthService
+	adminService  *service.AdminService
+	ticketService *service.TicketService
 }
 
-func New(repo *repository.Repository, authService *service.AuthService, adminService *service.AdminService) *Handler {
+func New(repo *repository.Repository, authService *service.AuthService, adminService *service.AdminService, ticketService *service.TicketService) *Handler {
 	return &Handler{
-		repo:         repo,
-		authService:  authService,
-		adminService: adminService,
+		repo:          repo,
+		authService:   authService,
+		adminService:  adminService,
+		ticketService: ticketService,
 	}
 }
 
