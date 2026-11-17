@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type NewTicket struct {
@@ -96,4 +97,87 @@ func (repo *Repository) CreateTicket(
 	}
 
 	return ticketID, nil
+}
+
+
+
+type AvailableTicket struct {
+	ID                  int64
+	DormitoryNumber     int
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionName        string
+	Title               string
+	Description         string
+	CreatedAt           time.Time
+}
+
+func (repo *Repository) GetAvailableTickets(
+	ctx context.Context,
+	executorID int64,
+) ([]AvailableTicket, error) {
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			t.id,
+			d.number,
+			t.block_number,
+			COALESCE(t.room_letter::text, ''),
+			COALESCE(t.location_description, ''),
+			p.name,
+			COALESCE(t.title, ''),
+			t.description,
+			t.created_at
+		FROM executor_profiles ep
+		JOIN users u ON u.id = ep.user_id
+		JOIN user_roles ur ON ur.user_id = ep.user_id
+		JOIN roles r ON r.id = ur.role_id
+		JOIN tickets t
+			ON t.dormitory_id = ep.dormitory_id
+			AND t.position_id = ep.position_id
+		JOIN ticket_statuses s
+			ON s.id = t.status_id
+			AND s.name = 'pending_review'
+		JOIN dormitories d ON d.id = t.dormitory_id
+		JOIN positions p ON p.id = t.position_id
+		WHERE ep.user_id = $1
+		  AND ep.is_active
+		  AND u.is_active
+		  AND r.name = 'executor'
+		  AND t.assignee_id IS NULL
+		ORDER BY t.created_at
+	`, executorID)
+	if err != nil {
+		return nil, fmt.Errorf("получить очередь исполнителя: %w", err)
+	}
+	defer rows.Close()
+
+	tickets := make([]AvailableTicket, 0)
+
+	for rows.Next() {
+		var ticket AvailableTicket
+
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.DormitoryNumber,
+			&ticket.BlockNumber,
+			&ticket.RoomLetter,
+			&ticket.LocationDescription,
+			&ticket.PositionName,
+			&ticket.Title,
+			&ticket.Description,
+			&ticket.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать заявку из очереди: %w", err)
+		}
+
+		tickets = append(tickets, ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("прочитать очередь исполнителя: %w", err)
+	}
+
+	return tickets, nil
 }

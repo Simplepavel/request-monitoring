@@ -74,3 +74,15 @@ func (service *TicketService) CreateTicket(
 
 	return ticketID, nil
 }
+
+func (service *TicketService) GetAvailableTickets(
+	ctx context.Context,
+	executorID int64,
+) ([]repository.AvailableTicket, error) {
+	tickets, err := service.repo.GetAvailableTickets(ctx, executorID)
+	if err != nil {
+		return nil, fmt.Errorf("получить очередь исполнителя: %w", err)
+	}
+
+	return tickets, nil
+}
