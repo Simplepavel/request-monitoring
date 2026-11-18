@@ -425,3 +425,84 @@ func (repo *Repository) ConfirmTicket(
 
 	return nil
 }
+
+func (repo *Repository) ReturnTicketForRework(
+	ctx context.Context,
+	ticketID int64,
+	residentID int64,
+	comment string,
+) error {
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начать транзакцию возврата заявки на доработку: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var fromStatusID int64
+	var toStatusID int64
+
+	err = tx.QueryRow(ctx, `
+		SELECT transition.from_status_id, transition.to_status_id
+		FROM status_transitions transition
+		JOIN ticket_statuses from_status
+			ON from_status.id = transition.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = transition.to_status_id
+		JOIN roles role
+			ON role.id = transition.actor_role_id
+		WHERE from_status.name = 'awaiting_confirmation'
+		  AND to_status.name = 'rejected_by_customer'
+		  AND role.name = 'resident'
+	`).Scan(&fromStatusID, &toStatusID)
+	if err != nil {
+		return fmt.Errorf("найти переход к статусу rejected_by_customer: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE tickets AS ticket
+		SET status_id = $1,
+		    finished_at = NULL
+		WHERE ticket.id = $2
+		  AND ticket.author_id = $3
+		  AND ticket.status_id = $4
+		  AND ticket.assignee_id IS NOT NULL
+		  AND EXISTS (
+			  SELECT 1
+			  FROM users user_account
+			  JOIN user_roles user_role
+				  ON user_role.user_id = user_account.id
+			  JOIN roles role
+				  ON role.id = user_role.role_id
+			  WHERE user_account.id = $3
+			    AND user_account.is_active
+			    AND role.name = 'resident'
+		  )
+	`, toStatusID, ticketID, residentID, fromStatusID)
+	if err != nil {
+		return fmt.Errorf("вернуть заявку на доработку: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrTicketUnavailable
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by,
+			comment
+		)
+		VALUES ($1, $2, $3, $4, $5)
+	`, ticketID, fromStatusID, toStatusID, residentID, comment)
+	if err != nil {
+		return fmt.Errorf("сохранить историю возврата заявки: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("сохранить возврат заявки на доработку: %w", err)
+	}
+
+	return nil
+}

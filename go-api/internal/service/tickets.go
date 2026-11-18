@@ -10,10 +10,12 @@ import (
 )
 
 var (
-	ErrInvalidTicket        = errors.New("invalid ticket")
-	ErrCannotAcceptTicket   = errors.New("ticket cannot be accepted")
-	ErrCannotCompleteTicket = errors.New("ticket cannot be completed")
-	ErrCannotConfirmTicket  = errors.New("ticket cannot be confirmed")
+	ErrInvalidTicket               = errors.New("invalid ticket")
+	ErrCannotAcceptTicket          = errors.New("ticket cannot be accepted")
+	ErrCannotCompleteTicket        = errors.New("ticket cannot be completed")
+	ErrCannotConfirmTicket         = errors.New("ticket cannot be confirmed")
+	ErrCommentRequired             = errors.New("comment is required")
+	ErrCannotReturnTicketForRework = errors.New("ticket cannot be returned for rework")
 )
 
 type TicketService struct {
@@ -147,6 +149,37 @@ func (service *TicketService) ConfirmTicket(
 	}
 	if err != nil {
 		return fmt.Errorf("подтвердить выполнение заявки: %w", err)
+	}
+
+	return nil
+}
+
+func (service *TicketService) ReturnTicketForRework(
+	ctx context.Context,
+	residentID int64,
+	ticketID int64,
+	comment string,
+) error {
+	if residentID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	comment = strings.TrimSpace(comment)
+	if comment == "" {
+		return ErrCommentRequired
+	}
+
+	err := service.repo.ReturnTicketForRework(
+		ctx,
+		ticketID,
+		residentID,
+		comment,
+	)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotReturnTicketForRework
+	}
+	if err != nil {
+		return fmt.Errorf("вернуть заявку на доработку: %w", err)
 	}
 
 	return nil

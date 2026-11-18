@@ -106,6 +106,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ConfirmTicket)),
 	)
 
+	mux.Handle(
+		"POST /tickets/{id}/return",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ReturnTicketForRework)),
+	)
+
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)

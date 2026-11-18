@@ -228,3 +228,59 @@ func (h *Handler) ConfirmTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type returnTicketForReworkRequest struct {
+	Comment string `json:"comment"`
+}
+
+func (h *Handler) ReturnTicketForRework(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req returnTicketForReworkRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "некорректный JSON")
+		return
+	}
+
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ReturnTicketForRework(
+		ctx,
+		residentID,
+		ticketID,
+		req.Comment,
+	)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCommentRequired) {
+		writeJSONError(w, http.StatusBadRequest, "Укажите причину возврата")
+		return
+	}
+	if errors.Is(err, service.ErrCannotReturnTicketForRework) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя вернуть на доработку")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка возврата заявки на доработку: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось вернуть заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
