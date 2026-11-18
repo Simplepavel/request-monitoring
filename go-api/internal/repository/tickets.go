@@ -265,3 +265,86 @@ func (repo *Repository) AcceptTicket(
 
 	return nil
 }
+
+func (repo *Repository) CompleteTicket(
+	ctx context.Context,
+	ticketID int64,
+	executorID int64,
+) error {
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начать транзакцию завершения заявки: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var fromStatusID int64
+	var toStatusID int64
+
+	err = tx.QueryRow(ctx, `
+		SELECT transition.from_status_id, transition.to_status_id
+		FROM status_transitions transition
+		JOIN ticket_statuses from_status
+			ON from_status.id = transition.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = transition.to_status_id
+		JOIN roles role
+			ON role.id = transition.actor_role_id
+		WHERE from_status.name = 'in_progress'
+		  AND to_status.name = 'awaiting_confirmation'
+		  AND role.name = 'executor'
+	`).Scan(&fromStatusID, &toStatusID)
+	if err != nil {
+		return fmt.Errorf("найти переход к статусу awaiting_confirmation: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE tickets AS ticket
+		SET status_id = $1,
+		    finished_at = NOW()
+		WHERE ticket.id = $2
+		  AND ticket.status_id = $3
+		  AND ticket.assignee_id = $4
+		  AND EXISTS (
+			  SELECT 1
+			  FROM executor_profiles profile
+			  JOIN users user_account
+				  ON user_account.id = profile.user_id
+			  JOIN user_roles user_role
+				  ON user_role.user_id = profile.user_id
+			  JOIN roles role
+				  ON role.id = user_role.role_id
+			  WHERE profile.user_id = $4
+			    AND profile.dormitory_id = ticket.dormitory_id
+			    AND profile.position_id = ticket.position_id
+			    AND profile.is_active
+			    AND user_account.is_active
+			    AND role.name = 'executor'
+		  )
+	`, toStatusID, ticketID, fromStatusID, executorID)
+	if err != nil {
+		return fmt.Errorf("обновить статус заявки: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrTicketUnavailable
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by
+		)
+		VALUES ($1, $2, $3, $4)
+	`, ticketID, fromStatusID, toStatusID, executorID)
+	if err != nil {
+		return fmt.Errorf("сохранить историю завершения заявки: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("сохранить завершение заявки: %w", err)
+	}
+
+	return nil
+}
