@@ -9,6 +9,9 @@ import (
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/handlers"
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
+
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -19,6 +22,11 @@ func main() {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("Не задана переменная DATABASE_URL")
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET не задан или слишком короткий")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -41,7 +49,10 @@ func main() {
 	log.Println("Подключение к PostgreSQL установлено")
 
 	repo := repository.New(db)
-	h := handlers.New(repo)
+	authService := service.NewAuthService(repo, jwtSecret)
+	adminService := service.NewAdminService(repo)
+	ticketService := service.NewTicketService(repo)
+	h := handlers.New(repo, authService, adminService, ticketService)
 
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -52,11 +63,41 @@ func main() {
 	mux.HandleFunc("GET /health", h.Health)
 	mux.HandleFunc("GET /dormitories", h.GetDormitories)
 	mux.HandleFunc("GET /positions", h.GetPositions)
+	mux.HandleFunc("POST /auth/register", h.RegisterResident)
 
+	mux.HandleFunc("POST /auth/login", h.Login)
+
+	mux.Handle(
+		"GET /auth/me",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.CurrentUser)),
+	)
 	log.Println("HTTP-сервер запущен на порту", port)
+
+	mux.Handle(
+		"POST /admin/executors",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignExecutor)),
+	)
+
+	mux.Handle(
+		"POST /admin/admins",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignAdmin)),
+	)
+
+	mux.Handle(
+		"POST /tickets",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.CreateTicket)),
+	)
+	mux.Handle(
+		"GET /tickets/available",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAvailableTickets)),
+	)
+	mux.Handle(
+		"POST /tickets/{id}/accept",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AcceptTicket)),
+	)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
-		log.Fatal("Ошибка HTTP-сервера: ", err)
+		log.Fatal("Ошибка HTTP-се рвера: ", err)
 	}
 }
