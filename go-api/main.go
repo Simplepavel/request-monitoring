@@ -110,6 +110,14 @@ func main() {
 		"POST /tickets/{id}/return",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ReturnTicketForRework)),
 	)
+	mux.Handle(
+		"GET /tickets/assigned",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAssignedTickets)),
+	)
+	mux.Handle(
+		"POST /tickets/{id}/resume",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ResumeTicket)),
+	)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {

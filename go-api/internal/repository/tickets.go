@@ -506,3 +506,174 @@ func (repo *Repository) ReturnTicketForRework(
 
 	return nil
 }
+
+type AssignedTicket struct {
+	ID                  int64
+	DormitoryNumber     int
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionName        string
+	Title               string
+	Description         string
+	StatusName          string
+	CreatedAt           time.Time
+}
+
+func (repo *Repository) GetAssignedTickets(
+	ctx context.Context,
+	executorID int64,
+) ([]AssignedTicket, error) {
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			t.id,
+			d.number,
+			t.block_number,
+			COALESCE(t.room_letter::text, ''),
+			COALESCE(t.location_description, ''),
+			p.name,
+			COALESCE(t.title, ''),
+			t.description,
+			s.name,
+			t.created_at
+		FROM tickets t
+		JOIN users u ON u.id = t.assignee_id
+		JOIN executor_profiles ep ON ep.user_id = u.id
+		JOIN ticket_statuses s ON s.id = t.status_id
+		JOIN dormitories d ON d.id = t.dormitory_id
+		JOIN positions p ON p.id = t.position_id
+		WHERE t.assignee_id = $1
+		  AND u.is_active
+		  AND ep.is_active
+		  AND s.name IN (
+			  'in_progress',
+			  'awaiting_confirmation',
+			  'rejected_by_customer'
+		  )
+		  AND EXISTS (
+			  SELECT 1
+			  FROM user_roles ur
+			  JOIN roles r ON r.id = ur.role_id
+			  WHERE ur.user_id = u.id
+			    AND r.name = 'executor'
+		  )
+		ORDER BY t.created_at
+	`, executorID)
+	if err != nil {
+		return nil, fmt.Errorf("получить назначенные заявки исполнителя: %w", err)
+	}
+	defer rows.Close()
+
+	tickets := make([]AssignedTicket, 0)
+
+	for rows.Next() {
+		var ticket AssignedTicket
+
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.DormitoryNumber,
+			&ticket.BlockNumber,
+			&ticket.RoomLetter,
+			&ticket.LocationDescription,
+			&ticket.PositionName,
+			&ticket.Title,
+			&ticket.Description,
+			&ticket.StatusName,
+			&ticket.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать назначенную заявку: %w", err)
+		}
+
+		tickets = append(tickets, ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("прочитать назначенные заявки: %w", err)
+	}
+
+	return tickets, nil
+}
+
+func (repo *Repository) ResumeTicket(
+	ctx context.Context,
+	ticketID int64,
+	executorID int64,
+) error {
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начать транзакцию возобновления заявки: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var fromStatusID int64
+	var toStatusID int64
+
+	err = tx.QueryRow(ctx, `
+		SELECT transition.from_status_id, transition.to_status_id
+		FROM status_transitions transition
+		JOIN ticket_statuses from_status
+			ON from_status.id = transition.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = transition.to_status_id
+		JOIN roles role
+			ON role.id = transition.actor_role_id
+		WHERE from_status.name = 'rejected_by_customer'
+		  AND to_status.name = 'in_progress'
+		  AND role.name = 'executor'
+	`).Scan(&fromStatusID, &toStatusID)
+	if err != nil {
+		return fmt.Errorf("найти переход к статусу in_progress: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE tickets AS ticket
+		SET status_id = $1,
+		    finished_at = NULL
+		WHERE ticket.id = $2
+		  AND ticket.status_id = $3
+		  AND ticket.assignee_id = $4
+		  AND EXISTS (
+			  SELECT 1
+			  FROM executor_profiles profile
+			  JOIN users user_account
+				  ON user_account.id = profile.user_id
+			  JOIN user_roles user_role
+				  ON user_role.user_id = profile.user_id
+			  JOIN roles role
+				  ON role.id = user_role.role_id
+			  WHERE profile.user_id = $4
+			    AND profile.dormitory_id = ticket.dormitory_id
+			    AND profile.position_id = ticket.position_id
+			    AND profile.is_active
+			    AND user_account.is_active
+			    AND role.name = 'executor'
+		  )
+	`, toStatusID, ticketID, fromStatusID, executorID)
+	if err != nil {
+		return fmt.Errorf("возобновить работу по заявке: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrTicketUnavailable
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by
+		)
+		VALUES ($1, $2, $3, $4)
+	`, ticketID, fromStatusID, toStatusID, executorID)
+	if err != nil {
+		return fmt.Errorf("сохранить историю возобновления заявки: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("сохранить возобновление заявки: %w", err)
+	}
+
+	return nil
+}

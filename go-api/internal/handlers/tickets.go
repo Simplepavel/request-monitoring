@@ -284,3 +284,89 @@ func (h *Handler) ReturnTicketForRework(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type assignedTicketResponse struct {
+	ID                  int64     `json:"id"`
+	DormitoryNumber     int       `json:"dormitory_number"`
+	BlockNumber         int       `json:"block_number"`
+	RoomLetter          string    `json:"room_letter"`
+	LocationDescription string    `json:"location_description"`
+	PositionName        string    `json:"position_name"`
+	Title               string    `json:"title"`
+	Description         string    `json:"description"`
+	StatusName          string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+func (h *Handler) GetAssignedTickets(w http.ResponseWriter, r *http.Request) {
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	tickets, err := h.ticketService.GetAssignedTickets(ctx, executorID)
+	if err != nil {
+		log.Printf("ошибка получения назначенных заявок: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось получить назначенные заявки")
+		return
+	}
+
+	response := make([]assignedTicketResponse, 0, len(tickets))
+	for _, ticket := range tickets {
+		response = append(response, assignedTicketResponse{
+			ID:                  ticket.ID,
+			DormitoryNumber:     ticket.DormitoryNumber,
+			BlockNumber:         ticket.BlockNumber,
+			RoomLetter:          ticket.RoomLetter,
+			LocationDescription: ticket.LocationDescription,
+			PositionName:        ticket.PositionName,
+			Title:               ticket.Title,
+			Description:         ticket.Description,
+			StatusName:          ticket.StatusName,
+			CreatedAt:           ticket.CreatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки назначенных заявок: %v", err)
+	}
+}
+
+func (h *Handler) ResumeTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ResumeTicket(ctx, executorID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotResumeTicket) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя возобновить")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка возобновления заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось возобновить заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
