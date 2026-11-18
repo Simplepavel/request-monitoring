@@ -86,3 +86,25 @@ func (service *TicketService) GetAvailableTickets(
 
 	return tickets, nil
 }
+
+var ErrCannotAcceptTicket = errors.New("ticket cannot be accepted")
+
+func (service *TicketService) AcceptTicket(
+	ctx context.Context,
+	executorID int64,
+	ticketID int64,
+) error {
+	if executorID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	err := service.repo.AcceptTicket(ctx, ticketID, executorID)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotAcceptTicket
+	}
+	if err != nil {
+		return fmt.Errorf("принять заявку: %w", err)
+	}
+
+	return nil
+}

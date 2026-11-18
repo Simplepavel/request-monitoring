@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
@@ -124,4 +125,38 @@ func (h *Handler) GetAvailableTickets(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("ошибка отправки очереди заявок: %v", err)
 	}
+}
+
+func (h *Handler) AcceptTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.AcceptTicket(ctx, executorID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotAcceptTicket) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя принять")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка принятия заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось принять заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

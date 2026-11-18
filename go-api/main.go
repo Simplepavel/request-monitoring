@@ -91,6 +91,10 @@ func main() {
 		"GET /tickets/available",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAvailableTickets)),
 	)
+	mux.Handle(
+		"POST /tickets/{id}/accept",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.AcceptTicket)),
+	)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
