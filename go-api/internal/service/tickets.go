@@ -9,7 +9,11 @@ import (
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 )
 
-var ErrInvalidTicket = errors.New("invalid ticket")
+var (
+	ErrInvalidTicket        = errors.New("invalid ticket")
+	ErrCannotAcceptTicket   = errors.New("ticket cannot be accepted")
+	ErrCannotCompleteTicket = errors.New("ticket cannot be completed")
+)
 
 type TicketService struct {
 	repo *repository.Repository
@@ -87,8 +91,6 @@ func (service *TicketService) GetAvailableTickets(
 	return tickets, nil
 }
 
-var ErrCannotAcceptTicket = errors.New("ticket cannot be accepted")
-
 func (service *TicketService) AcceptTicket(
 	ctx context.Context,
 	executorID int64,
@@ -104,6 +106,26 @@ func (service *TicketService) AcceptTicket(
 	}
 	if err != nil {
 		return fmt.Errorf("принять заявку: %w", err)
+	}
+
+	return nil
+}
+
+func (service *TicketService) CompleteTicket(
+	ctx context.Context,
+	executorID int64,
+	ticketID int64,
+) error {
+	if executorID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	err := service.repo.CompleteTicket(ctx, ticketID, executorID)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotCompleteTicket
+	}
+	if err != nil {
+		return fmt.Errorf("завершить работу по заявке: %w", err)
 	}
 
 	return nil
