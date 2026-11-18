@@ -194,3 +194,179 @@ func (h *Handler) CompleteTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) ConfirmTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный ID заявки")
+		return
+	}
+
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ConfirmTicket(ctx, residentID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotConfirmTicket) {
+		writeJSONError(w, http.StatusConflict, "Заявку нельзя подтвердить")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка подтверждения заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось подтвердить заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type returnTicketForReworkRequest struct {
+	Comment string `json:"comment"`
+}
+
+func (h *Handler) ReturnTicketForRework(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req returnTicketForReworkRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "некорректный JSON")
+		return
+	}
+
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ReturnTicketForRework(
+		ctx,
+		residentID,
+		ticketID,
+		req.Comment,
+	)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCommentRequired) {
+		writeJSONError(w, http.StatusBadRequest, "Укажите причину возврата")
+		return
+	}
+	if errors.Is(err, service.ErrCannotReturnTicketForRework) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя вернуть на доработку")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка возврата заявки на доработку: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось вернуть заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type assignedTicketResponse struct {
+	ID                  int64     `json:"id"`
+	DormitoryNumber     int       `json:"dormitory_number"`
+	BlockNumber         int       `json:"block_number"`
+	RoomLetter          string    `json:"room_letter"`
+	LocationDescription string    `json:"location_description"`
+	PositionName        string    `json:"position_name"`
+	Title               string    `json:"title"`
+	Description         string    `json:"description"`
+	StatusName          string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+func (h *Handler) GetAssignedTickets(w http.ResponseWriter, r *http.Request) {
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	tickets, err := h.ticketService.GetAssignedTickets(ctx, executorID)
+	if err != nil {
+		log.Printf("ошибка получения назначенных заявок: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось получить назначенные заявки")
+		return
+	}
+
+	response := make([]assignedTicketResponse, 0, len(tickets))
+	for _, ticket := range tickets {
+		response = append(response, assignedTicketResponse{
+			ID:                  ticket.ID,
+			DormitoryNumber:     ticket.DormitoryNumber,
+			BlockNumber:         ticket.BlockNumber,
+			RoomLetter:          ticket.RoomLetter,
+			LocationDescription: ticket.LocationDescription,
+			PositionName:        ticket.PositionName,
+			Title:               ticket.Title,
+			Description:         ticket.Description,
+			StatusName:          ticket.StatusName,
+			CreatedAt:           ticket.CreatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки назначенных заявок: %v", err)
+	}
+}
+
+func (h *Handler) ResumeTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ResumeTicket(ctx, executorID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotResumeTicket) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя возобновить")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка возобновления заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось возобновить заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

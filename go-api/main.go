@@ -101,6 +101,24 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.CompleteTicket)),
 	)
 
+	mux.Handle(
+		"POST /tickets/{id}/confirm",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ConfirmTicket)),
+	)
+
+	mux.Handle(
+		"POST /tickets/{id}/return",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ReturnTicketForRework)),
+	)
+	mux.Handle(
+		"GET /tickets/assigned",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAssignedTickets)),
+	)
+	mux.Handle(
+		"POST /tickets/{id}/resume",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ResumeTicket)),
+	)
+
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)
