@@ -194,3 +194,37 @@ func (h *Handler) CompleteTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) ConfirmTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный ID заявки")
+		return
+	}
+
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ConfirmTicket(ctx, residentID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotConfirmTicket) {
+		writeJSONError(w, http.StatusConflict, "Заявку нельзя подтвердить")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка подтверждения заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось подтвердить заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -13,6 +13,7 @@ var (
 	ErrInvalidTicket        = errors.New("invalid ticket")
 	ErrCannotAcceptTicket   = errors.New("ticket cannot be accepted")
 	ErrCannotCompleteTicket = errors.New("ticket cannot be completed")
+	ErrCannotConfirmTicket  = errors.New("ticket cannot be confirmed")
 )
 
 type TicketService struct {
@@ -126,6 +127,26 @@ func (service *TicketService) CompleteTicket(
 	}
 	if err != nil {
 		return fmt.Errorf("завершить работу по заявке: %w", err)
+	}
+
+	return nil
+}
+
+func (service *TicketService) ConfirmTicket(
+	ctx context.Context,
+	residentID int64,
+	ticketID int64,
+) error {
+	if residentID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	err := service.repo.ConfirmTicket(ctx, ticketID, residentID)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotConfirmTicket
+	}
+	if err != nil {
+		return fmt.Errorf("подтвердить выполнение заявки: %w", err)
 	}
 
 	return nil
