@@ -871,3 +871,84 @@ func (repo *Repository) ResubmitTicket(
 
 	return nil
 }
+
+type ResidentTicket struct {
+	ID                  int64
+	DormitoryNumber     int
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionName        string
+	Title               string
+	Description         string
+	StatusName          string
+	CreatedAt           time.Time
+}
+
+func (repo *Repository) GetResidentTickets(
+	ctx context.Context,
+	residentID int64,
+) ([]ResidentTicket, error) {
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			t.id,
+			d.number,
+			t.block_number,
+			COALESCE(t.room_letter::text, ''),
+			COALESCE(t.location_description, ''),
+			p.name,
+			COALESCE(t.title, ''),
+			t.description,
+			s.name,
+			t.created_at
+		FROM tickets t
+		JOIN users u ON u.id = t.author_id
+		JOIN dormitories d ON d.id = t.dormitory_id
+		JOIN positions p ON p.id = t.position_id
+		JOIN ticket_statuses s ON s.id = t.status_id
+		WHERE t.author_id = $1
+		  AND u.is_active
+		  AND EXISTS (
+			  SELECT 1
+			  FROM user_roles ur
+			  JOIN roles r ON r.id = ur.role_id
+			  WHERE ur.user_id = t.author_id
+			    AND r.name = 'resident'
+		  )
+		ORDER BY t.created_at DESC, t.id DESC
+	`, residentID)
+	if err != nil {
+		return nil, fmt.Errorf("получить заявки жителя: %w", err)
+	}
+	defer rows.Close()
+
+	tickets := make([]ResidentTicket, 0)
+
+	for rows.Next() {
+		var ticket ResidentTicket
+
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.DormitoryNumber,
+			&ticket.BlockNumber,
+			&ticket.RoomLetter,
+			&ticket.LocationDescription,
+			&ticket.PositionName,
+			&ticket.Title,
+			&ticket.Description,
+			&ticket.StatusName,
+			&ticket.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать заявку жителя: %w", err)
+		}
+
+		tickets = append(tickets, ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("прочитать список заявок жителя: %w", err)
+	}
+
+	return tickets, nil
+}

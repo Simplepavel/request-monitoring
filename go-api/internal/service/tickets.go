@@ -299,3 +299,19 @@ func (service *TicketService) ResubmitTicket(
 
 	return nil
 }
+
+func (service *TicketService) GetResidentTickets(
+	ctx context.Context,
+	residentID int64,
+) ([]repository.ResidentTicket, error) {
+	if residentID <= 0 {
+		return nil, ErrInvalidTicket
+	}
+
+	tickets, err := service.repo.GetResidentTickets(ctx, residentID)
+	if err != nil {
+		return nil, fmt.Errorf("получить заявки жителя: %w", err)
+	}
+
+	return tickets, nil
+}
