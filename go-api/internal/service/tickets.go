@@ -18,6 +18,7 @@ var (
 	ErrCannotReturnTicketForRework = errors.New("ticket cannot be returned for rework")
 	ErrCannotResumeTicket          = errors.New("ticket cannot be resumed")
 	ErrCannotRejectTicket          = errors.New("ticket cannot be rejected")
+	ErrCannotResubmitTicket        = errors.New("ticket cannot be resubmitted")
 )
 
 type TicketService struct {
@@ -45,26 +46,13 @@ func (service *TicketService) CreateTicket(
 	authorID int64,
 	input CreateTicketInput,
 ) (int64, error) {
-	if authorID <= 0 || input.DormitoryID <= 0 || input.PositionID <= 0 {
+	if authorID <= 0 {
 		return 0, ErrInvalidTicket
 	}
 
-	floor := input.BlockNumber / 100
-	block := input.BlockNumber % 100
-	if floor < 1 || block < 1 || block > 99 {
-		return 0, ErrInvalidTicket
-	}
-
-	input.RoomLetter = strings.TrimSpace(input.RoomLetter)
-	if input.RoomLetter != "" && input.RoomLetter != "а" && input.RoomLetter != "б" {
-		return 0, ErrInvalidTicket
-	}
-
-	input.LocationDescription = strings.TrimSpace(input.LocationDescription)
-	input.Title = strings.TrimSpace(input.Title)
-	input.Description = strings.TrimSpace(input.Description)
-	if input.Description == "" {
-		return 0, ErrInvalidTicket
+	input, err := validateAndNormalizeTicketInput(input)
+	if err != nil {
+		return 0, err
 	}
 
 	ticketID, err := service.repo.CreateTicket(ctx, repository.NewTicket{
@@ -240,6 +228,73 @@ func (service *TicketService) RejectTicket(
 	}
 	if err != nil {
 		return fmt.Errorf("отклонить заявку: %w", err)
+	}
+
+	return nil
+}
+
+func validateAndNormalizeTicketInput(
+	input CreateTicketInput,
+) (CreateTicketInput, error) {
+	if input.DormitoryID <= 0 || input.PositionID <= 0 {
+		return input, ErrInvalidTicket
+	}
+
+	floor := input.BlockNumber / 100
+	block := input.BlockNumber % 100
+	if floor < 1 || block < 1 || block > 99 {
+		return input, ErrInvalidTicket
+	}
+
+	input.RoomLetter = strings.TrimSpace(input.RoomLetter)
+	if input.RoomLetter != "" && input.RoomLetter != "а" && input.RoomLetter != "б" {
+		return input, ErrInvalidTicket
+	}
+
+	input.LocationDescription = strings.TrimSpace(input.LocationDescription)
+	input.Title = strings.TrimSpace(input.Title)
+	input.Description = strings.TrimSpace(input.Description)
+	if input.Description == "" {
+		return input, ErrInvalidTicket
+	}
+
+	return input, nil
+}
+
+func (service *TicketService) ResubmitTicket(
+	ctx context.Context,
+	residentID int64,
+	ticketID int64,
+	input CreateTicketInput,
+) error {
+	if residentID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	input, err := validateAndNormalizeTicketInput(input)
+	if err != nil {
+		return err
+	}
+
+	err = service.repo.ResubmitTicket(
+		ctx,
+		ticketID,
+		residentID,
+		repository.TicketUpdate{
+			DormitoryID:         input.DormitoryID,
+			BlockNumber:         input.BlockNumber,
+			RoomLetter:          input.RoomLetter,
+			LocationDescription: input.LocationDescription,
+			PositionID:          input.PositionID,
+			Title:               input.Title,
+			Description:         input.Description,
+		},
+	)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotResubmitTicket
+	}
+	if err != nil {
+		return fmt.Errorf("повторно отправить заявку: %w", err)
 	}
 
 	return nil

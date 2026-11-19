@@ -762,3 +762,112 @@ func (repo *Repository) RejectTicket(
 
 	return nil
 }
+
+type TicketUpdate struct {
+	DormitoryID         int64
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionID          int64
+	Title               string
+	Description         string
+}
+
+func (repo *Repository) ResubmitTicket(
+	ctx context.Context,
+	ticketID int64,
+	residentID int64,
+	update TicketUpdate,
+) error {
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начать транзакцию повторной отправки заявки: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var fromStatusID int64
+	var toStatusID int64
+
+	err = tx.QueryRow(ctx, `
+		SELECT transition.from_status_id, transition.to_status_id
+		FROM status_transitions transition
+		JOIN ticket_statuses from_status
+			ON from_status.id = transition.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = transition.to_status_id
+		JOIN roles role
+			ON role.id = transition.actor_role_id
+		WHERE from_status.name = 'rejected_by_executor'
+		  AND to_status.name = 'pending_review'
+		  AND role.name = 'resident'
+	`).Scan(&fromStatusID, &toStatusID)
+	if err != nil {
+		return fmt.Errorf("найти переход к статусу pending_review: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE tickets AS ticket
+		SET dormitory_id = $1,
+		    block_number = $2,
+		    room_letter = NULLIF($3, ''),
+		    location_description = NULLIF($4, ''),
+		    position_id = $5,
+		    title = NULLIF($6, ''),
+		    description = $7,
+		    status_id = $8,
+		    assignee_id = NULL,
+		    finished_at = NULL
+		WHERE ticket.id = $9
+		  AND ticket.author_id = $10
+		  AND ticket.status_id = $11
+		  AND EXISTS (
+			  SELECT 1
+			  FROM users user_account
+			  JOIN user_roles user_role
+				  ON user_role.user_id = user_account.id
+			  JOIN roles role
+				  ON role.id = user_role.role_id
+			  WHERE user_account.id = $10
+			    AND user_account.is_active
+			    AND role.name = 'resident'
+		  )
+	`,
+		update.DormitoryID,
+		update.BlockNumber,
+		update.RoomLetter,
+		update.LocationDescription,
+		update.PositionID,
+		update.Title,
+		update.Description,
+		toStatusID,
+		ticketID,
+		residentID,
+		fromStatusID,
+	)
+	if err != nil {
+		return fmt.Errorf("обновить и повторно отправить заявку: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrTicketUnavailable
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by
+		)
+		VALUES ($1, $2, $3, $4)
+	`, ticketID, fromStatusID, toStatusID, residentID)
+	if err != nil {
+		return fmt.Errorf("сохранить историю повторной отправки заявки: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("завершить повторную отправку заявки: %w", err)
+	}
+
+	return nil
+}

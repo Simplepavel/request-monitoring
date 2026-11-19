@@ -426,3 +426,59 @@ func (h *Handler) RejectTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) ResubmitTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req createTicketRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "некорректный JSON")
+		return
+	}
+
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.ResubmitTicket(
+		ctx,
+		residentID,
+		ticketID,
+		service.CreateTicketInput{
+			DormitoryID:         req.DormitoryID,
+			BlockNumber:         req.BlockNumber,
+			RoomLetter:          req.RoomLetter,
+			LocationDescription: req.LocationDescription,
+			PositionID:          req.PositionID,
+			Title:               req.Title,
+			Description:         req.Description,
+		},
+	)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "Проверьте данные заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotResubmitTicket) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя отправить повторно")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка повторной отправки заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось отправить заявку повторно")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
