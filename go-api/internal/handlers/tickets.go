@@ -482,3 +482,59 @@ func (h *Handler) ResubmitTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type residentTicketResponse struct {
+	ID                  int64     `json:"id"`
+	DormitoryNumber     int       `json:"dormitory_number"`
+	BlockNumber         int       `json:"block_number"`
+	RoomLetter          string    `json:"room_letter"`
+	LocationDescription string    `json:"location_description"`
+	PositionName        string    `json:"position_name"`
+	Title               string    `json:"title"`
+	Description         string    `json:"description"`
+	StatusName          string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+func (h *Handler) GetResidentTickets(w http.ResponseWriter, r *http.Request) {
+	residentID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	tickets, err := h.ticketService.GetResidentTickets(ctx, residentID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения заявок жителя: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось получить заявки")
+		return
+	}
+
+	response := make([]residentTicketResponse, 0, len(tickets))
+	for _, ticket := range tickets {
+		response = append(response, residentTicketResponse{
+			ID:                  ticket.ID,
+			DormitoryNumber:     ticket.DormitoryNumber,
+			BlockNumber:         ticket.BlockNumber,
+			RoomLetter:          ticket.RoomLetter,
+			LocationDescription: ticket.LocationDescription,
+			PositionName:        ticket.PositionName,
+			Title:               ticket.Title,
+			Description:         ticket.Description,
+			StatusName:          ticket.StatusName,
+			CreatedAt:           ticket.CreatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки заявок жителя: %v", err)
+	}
+}
