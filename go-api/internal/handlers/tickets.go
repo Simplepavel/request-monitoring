@@ -370,3 +370,59 @@ func (h *Handler) ResumeTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type rejectTicketRequest struct {
+	Comment string `json:"comment"`
+}
+
+func (h *Handler) RejectTicket(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req rejectTicketRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "некорректный JSON")
+		return
+	}
+
+	executorID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err = h.ticketService.RejectTicket(
+		ctx,
+		executorID,
+		ticketID,
+		req.Comment,
+	)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCommentRequired) {
+		writeJSONError(w, http.StatusBadRequest, "Укажите причину отклонения")
+		return
+	}
+	if errors.Is(err, service.ErrCannotRejectTicket) {
+		writeJSONError(w, http.StatusConflict, "заявку нельзя отклонить")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка отклонения заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось отклонить заявку")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

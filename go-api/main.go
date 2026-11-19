@@ -119,6 +119,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ResumeTicket)),
 	)
 
+	mux.Handle(
+		"POST /tickets/{id}/reject",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.RejectTicket)),
+	)
+
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)

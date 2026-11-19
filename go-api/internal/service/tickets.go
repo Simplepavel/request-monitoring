@@ -17,6 +17,7 @@ var (
 	ErrCommentRequired             = errors.New("comment is required")
 	ErrCannotReturnTicketForRework = errors.New("ticket cannot be returned for rework")
 	ErrCannotResumeTicket          = errors.New("ticket cannot be resumed")
+	ErrCannotRejectTicket          = errors.New("ticket cannot be rejected")
 )
 
 type TicketService struct {
@@ -213,6 +214,32 @@ func (service *TicketService) ResumeTicket(
 	}
 	if err != nil {
 		return fmt.Errorf("возобновить работу по заявке: %w", err)
+	}
+
+	return nil
+}
+
+func (service *TicketService) RejectTicket(
+	ctx context.Context,
+	executorID int64,
+	ticketID int64,
+	comment string,
+) error {
+	if executorID <= 0 || ticketID <= 0 {
+		return ErrInvalidTicket
+	}
+
+	comment = strings.TrimSpace(comment)
+	if comment == "" {
+		return ErrCommentRequired
+	}
+
+	err := service.repo.RejectTicket(ctx, ticketID, executorID, comment)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return ErrCannotRejectTicket
+	}
+	if err != nil {
+		return fmt.Errorf("отклонить заявку: %w", err)
 	}
 
 	return nil
