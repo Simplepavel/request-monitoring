@@ -538,3 +538,59 @@ func (h *Handler) GetResidentTickets(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ошибка отправки заявок жителя: %v", err)
 	}
 }
+
+type ticketHistoryEventResponse struct {
+	FromStatus string    `json:"from_status"`
+	ToStatus   string    `json:"to_status"`
+	ChangedBy  int64     `json:"changed_by"`
+	Comment    string    `json:"comment"`
+	ChangedAt  time.Time `json:"changed_at"`
+}
+
+func (h *Handler) GetTicketHistory(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	events, err := h.ticketService.GetTicketHistory(ctx, userID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotViewTicketHistory) {
+		writeJSONError(w, http.StatusNotFound, "заявка не найдена")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения истории заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось получить историю заявки")
+		return
+	}
+
+	response := make([]ticketHistoryEventResponse, 0, len(events))
+	for _, event := range events {
+		response = append(response, ticketHistoryEventResponse{
+			FromStatus: event.FromStatus,
+			ToStatus:   event.ToStatus,
+			ChangedBy:  event.ChangedBy,
+			Comment:    event.Comment,
+			ChangedAt:  event.ChangedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки истории заявки: %v", err)
+	}
+}

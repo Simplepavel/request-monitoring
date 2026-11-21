@@ -952,3 +952,72 @@ func (repo *Repository) GetResidentTickets(
 
 	return tickets, nil
 }
+
+type TicketHistoryEvent struct {
+	FromStatus string
+	ToStatus   string
+	ChangedBy  int64
+	Comment    string
+	ChangedAt  time.Time
+}
+
+func (repo *Repository) GetTicketHistory(
+	ctx context.Context,
+	ticketID int64,
+	userID int64,
+) ([]TicketHistoryEvent, error) {
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			COALESCE(from_status.name, ''),
+			to_status.name,
+			history.changed_by,
+			COALESCE(history.comment, ''),
+			history.changed_at
+		FROM ticket_status_history history
+		JOIN tickets ticket
+			ON ticket.id = history.ticket_id
+		LEFT JOIN ticket_statuses from_status
+			ON from_status.id = history.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = history.to_status_id
+		WHERE history.ticket_id = $1
+		  AND (
+			  ticket.author_id = $2
+			  OR ticket.assignee_id = $2
+		  )
+		ORDER BY history.changed_at
+	`, ticketID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("получить историю заявки: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]TicketHistoryEvent, 0)
+
+	for rows.Next() {
+		var event TicketHistoryEvent
+
+		err := rows.Scan(
+			&event.FromStatus,
+			&event.ToStatus,
+			&event.ChangedBy,
+			&event.Comment,
+			&event.ChangedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать событие истории заявки: %w", err)
+		}
+
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("прочитать историю заявки: %w", err)
+	}
+
+	if len(events) == 0 {
+		return nil, ErrTicketUnavailable
+	}
+
+	return events, nil
+}
