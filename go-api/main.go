@@ -134,6 +134,10 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetResidentTickets)),
 	)
 
+	mux.Handle(
+		"GET /tickets/{id}/history",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketHistory)),
+	)
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)

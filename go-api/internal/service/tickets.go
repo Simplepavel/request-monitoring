@@ -19,6 +19,7 @@ var (
 	ErrCannotResumeTicket          = errors.New("ticket cannot be resumed")
 	ErrCannotRejectTicket          = errors.New("ticket cannot be rejected")
 	ErrCannotResubmitTicket        = errors.New("ticket cannot be resubmitted")
+	ErrCannotViewTicketHistory     = errors.New("ticket history is unavailable")
 )
 
 type TicketService struct {
@@ -314,4 +315,24 @@ func (service *TicketService) GetResidentTickets(
 	}
 
 	return tickets, nil
+}
+
+func (service *TicketService) GetTicketHistory(
+	ctx context.Context,
+	userID int64,
+	ticketID int64,
+) ([]repository.TicketHistoryEvent, error) {
+	if userID <= 0 || ticketID <= 0 {
+		return nil, ErrInvalidTicket
+	}
+
+	events, err := service.repo.GetTicketHistory(ctx, ticketID, userID)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return nil, ErrCannotViewTicketHistory
+	}
+	if err != nil {
+		return nil, fmt.Errorf("получить историю заявки: %w", err)
+	}
+
+	return events, nil
 }
