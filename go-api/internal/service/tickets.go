@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
+	"strings"
+	"time"
 )
 
 var (
@@ -335,4 +335,19 @@ func (service *TicketService) GetTicketHistory(
 	}
 
 	return events, nil
+}
+
+func (service *TicketService) AutoCloseExpiredTickets(
+	ctx context.Context,
+	confirmationTimeout time.Duration,
+) (int64, error) {
+	closedCount, err := service.repo.AutoCloseExpiredTickets(
+		ctx,
+		confirmationTimeout,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("автоматически закрыть просроченные заявки: %w", err)
+	}
+
+	return closedCount, nil
 }

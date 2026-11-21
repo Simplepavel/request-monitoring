@@ -1021,3 +1021,66 @@ func (repo *Repository) GetTicketHistory(
 
 	return events, nil
 }
+
+func (repo *Repository) AutoCloseExpiredTickets(
+	ctx context.Context,
+	confirmationTimeout time.Duration,
+) (int64, error) {
+	if confirmationTimeout <= 0 {
+		return 0, fmt.Errorf("срок подтверждения должен быть больше нуля")
+	}
+
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("начать транзакцию автозакрытия заявок: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var fromStatusID int64
+	var toStatusID int64
+
+	err = tx.QueryRow(ctx, `
+		SELECT transition.from_status_id, transition.to_status_id
+		FROM status_transitions transition
+		JOIN ticket_statuses from_status
+			ON from_status.id = transition.from_status_id
+		JOIN ticket_statuses to_status
+			ON to_status.id = transition.to_status_id
+		WHERE from_status.name = 'awaiting_confirmation'
+		  AND to_status.name = 'completed'
+		  AND transition.actor_role_id IS NULL
+		  AND transition.comment_required = FALSE
+	`).Scan(&fromStatusID, &toStatusID)
+	if err != nil {
+		return 0, fmt.Errorf("найти системный переход к статусу completed: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		WITH expired_tickets AS (
+			UPDATE tickets AS ticket
+			SET status_id = $1
+			WHERE ticket.status_id = $2
+			  AND ticket.finished_at <= NOW() - ($3::double precision * INTERVAL '1 second')
+			RETURNING ticket.id
+		)
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by
+		)
+		SELECT id, $2, $1, NULL
+		FROM expired_tickets
+	`, toStatusID, fromStatusID, confirmationTimeout.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("автоматически закрыть заявки: %w", err)
+	}
+
+	closedCount := tag.RowsAffected()
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("сохранить автозакрытие заявок: %w", err)
+	}
+
+	return closedCount, nil
+}
