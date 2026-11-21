@@ -139,6 +139,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketHistory)),
 	)
 
+	mux.Handle(
+		"POST /admin/executors/deactivate",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.DeactivateExecutor)),
+	)
+
 	startTicketAutoCloser(ticketService)
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
@@ -154,7 +159,7 @@ func startTicketAutoCloser(ticketService *service.TicketService) {
 		for {
 			ctx, cancel := context.WithTimeout(
 				context.Background(),
-				10 * time.Second,
+				10*time.Second,
 			)
 
 			closedCount, err := ticketService.AutoCloseExpiredTickets(

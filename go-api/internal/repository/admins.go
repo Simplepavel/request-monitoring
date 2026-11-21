@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -149,7 +150,6 @@ func (repo *Repository) AssignAdmin(
 	return nil
 }
 
-
 func (repo *Repository) IsActiveSuperAdmin(
 	ctx context.Context,
 	userID int64,
@@ -172,4 +172,92 @@ func (repo *Repository) IsActiveSuperAdmin(
 	}
 
 	return isActive, nil
+}
+
+var ErrExecutorUnavailable = errors.New("executor is unavailable")
+
+type ExecutorDeactivation struct {
+	UserID      int64
+	DormitoryID int64
+}
+
+func (repo *Repository) DeactivateExecutor(
+	ctx context.Context,
+	deactivation ExecutorDeactivation,
+) error {
+	tx, err := repo.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("начать транзакцию деактивации исполнителя: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE executor_profiles
+		SET is_active = FALSE,
+		    deactivated_at = NOW()
+		WHERE user_id = $1
+		  AND dormitory_id = $2
+		  AND is_active
+	`, deactivation.UserID, deactivation.DormitoryID)
+	if err != nil {
+		return fmt.Errorf("деактивировать профиль исполнителя: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrExecutorUnavailable
+	}
+
+	_, err = tx.Exec(ctx, `
+		WITH system_transitions AS (
+			SELECT
+				transition.from_status_id,
+				transition.to_status_id
+			FROM status_transitions transition
+			JOIN ticket_statuses from_status
+				ON from_status.id = transition.from_status_id
+			JOIN ticket_statuses to_status
+				ON to_status.id = transition.to_status_id
+			WHERE transition.actor_role_id IS NULL
+			  AND transition.comment_required = FALSE
+			  AND to_status.name = 'pending_review'
+			  AND from_status.name IN (
+				  'in_progress',
+				  'rejected_by_customer'
+			  )
+		),
+		returned_tickets AS (
+			UPDATE tickets AS ticket
+			SET status_id = transition.to_status_id,
+			    assignee_id = NULL,
+			    finished_at = NULL
+			FROM system_transitions transition
+			WHERE ticket.assignee_id = $1
+			  AND ticket.status_id = transition.from_status_id
+			RETURNING
+				ticket.id,
+				transition.from_status_id,
+				transition.to_status_id
+		)
+		INSERT INTO ticket_status_history (
+			ticket_id,
+			from_status_id,
+			to_status_id,
+			changed_by
+		)
+		SELECT
+			returned.id,
+			returned.from_status_id,
+			returned.to_status_id,
+			NULL
+		FROM returned_tickets returned
+	`, deactivation.UserID)
+	if err != nil {
+		return fmt.Errorf("вернуть заявки деактивированного исполнителя в очередь: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("сохранить деактивацию исполнителя: %w", err)
+	}
+
+	return nil
 }
