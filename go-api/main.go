@@ -138,8 +138,38 @@ func main() {
 		"GET /tickets/{id}/history",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketHistory)),
 	)
+
+	startTicketAutoCloser(ticketService)
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal("Ошибка HTTP-се рвера: ", err)
 	}
+}
+
+func startTicketAutoCloser(ticketService *service.TicketService) {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+
+		for {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				10 * time.Second,
+			)
+
+			closedCount, err := ticketService.AutoCloseExpiredTickets(
+				ctx,
+				72*time.Hour,
+			)
+			cancel()
+
+			if err != nil {
+				log.Printf("ошибка автозакрытия заявок: %v", err)
+			} else if closedCount > 0 {
+				log.Printf("автоматически закрыто заявок: %d", closedCount)
+			}
+
+			<-ticker.C
+		}
+	}()
 }
