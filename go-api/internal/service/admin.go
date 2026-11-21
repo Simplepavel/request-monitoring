@@ -8,7 +8,10 @@ import (
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 )
 
-var ErrForbidden = errors.New("недостаточно прав")
+var (
+	ErrForbidden                = errors.New("недостаточно прав")
+	ErrCannotDeactivateExecutor = errors.New("исполнителя нельзя деактивировать")
+)
 
 type AdminService struct {
 	repo *repository.Repository
@@ -46,7 +49,6 @@ func (service *AdminService) AssignExecutor( //назначить исполни
 	return nil
 }
 
-
 func (service *AdminService) AssignAdmin( // назначить админа
 	ctx context.Context,
 	managerID int64,
@@ -63,6 +65,35 @@ func (service *AdminService) AssignAdmin( // назначить админа
 
 	if err := service.repo.AssignAdmin(ctx, assignment); err != nil {
 		return fmt.Errorf("назначить администратора: %w", err)
+	}
+
+	return nil
+}
+
+func (service *AdminService) DeactivateExecutor(
+	ctx context.Context,
+	managerID int64,
+	deactivation repository.ExecutorDeactivation,
+) error {
+	canManage, err := service.repo.CanManageDormitory(
+		ctx,
+		managerID,
+		deactivation.DormitoryID,
+	)
+	if err != nil {
+		return fmt.Errorf("проверить права администратора: %w", err)
+	}
+
+	if !canManage {
+		return ErrForbidden
+	}
+
+	err = service.repo.DeactivateExecutor(ctx, deactivation)
+	if errors.Is(err, repository.ErrExecutorUnavailable) {
+		return ErrCannotDeactivateExecutor
+	}
+	if err != nil {
+		return fmt.Errorf("деактивировать исполнителя: %w", err)
 	}
 
 	return nil
