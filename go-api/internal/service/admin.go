@@ -11,6 +11,7 @@ import (
 var (
 	ErrForbidden                = errors.New("недостаточно прав")
 	ErrCannotDeactivateExecutor = errors.New("исполнителя нельзя деактивировать")
+	ErrCannotActivateExecutor   = errors.New("исполнителя нельзя активировать")
 )
 
 type AdminService struct {
@@ -94,6 +95,35 @@ func (service *AdminService) DeactivateExecutor(
 	}
 	if err != nil {
 		return fmt.Errorf("деактивировать исполнителя: %w", err)
+	}
+
+	return nil
+}
+
+func (service *AdminService) ActivateExecutor(
+	ctx context.Context,
+	managerID int64,
+	activation repository.ExecutorActivation,
+) error {
+	canManage, err := service.repo.CanManageDormitory(
+		ctx,
+		managerID,
+		activation.DormitoryID,
+	)
+	if err != nil {
+		return fmt.Errorf("проверить права на активацию исполнителя: %w", err)
+	}
+
+	if !canManage {
+		return ErrForbidden
+	}
+
+	err = service.repo.ActivateExecutor(ctx, activation)
+	if errors.Is(err, repository.ErrExecutorUnavailable) {
+		return ErrCannotActivateExecutor
+	}
+	if err != nil {
+		return fmt.Errorf("активировать исполнителя: %w", err)
 	}
 
 	return nil

@@ -167,3 +167,57 @@ func (h *Handler) DeactivateExecutor(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type activateExecutorRequest struct {
+	UserID      int64 `json:"user_id"`
+	DormitoryID int64 `json:"dormitory_id"`
+}
+
+func (h *Handler) ActivateExecutor(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+
+	var req activateExecutorRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Некорректный JSON")
+		return
+	}
+
+	if req.UserID <= 0 || req.DormitoryID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Все ID должны быть положительными")
+		return
+	}
+
+	managerID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	err := h.adminService.ActivateExecutor(
+		ctx,
+		managerID,
+		repository.ExecutorActivation{
+			UserID:      req.UserID,
+			DormitoryID: req.DormitoryID,
+		},
+	)
+	if errors.Is(err, service.ErrForbidden) {
+		writeJSONError(w, http.StatusForbidden, "недостаточно прав")
+		return
+	}
+	if errors.Is(err, service.ErrCannotActivateExecutor) {
+		writeJSONError(w, http.StatusConflict, "исполнитель не найден в этом общежитии или уже активен")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка активации исполнителя: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось активировать исполнителя")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
