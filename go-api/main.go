@@ -140,6 +140,10 @@ func main() {
 		"POST /tickets/{id}/resubmit",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ResubmitTicket)),
 	)
+	mux.Handle(
+		"GET /admin/tickets",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ListAdminTickets)),
+	)
 
 	frontendOrigin := os.Getenv("FRONTEND_ORIGIN")
 	if frontendOrigin == "" {

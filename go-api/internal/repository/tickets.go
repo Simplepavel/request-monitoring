@@ -1084,3 +1084,96 @@ func (repo *Repository) AutoCloseExpiredTickets(
 
 	return closedCount, nil
 }
+
+type AdminTicket struct {
+	ID                  int64
+	DormitoryNumber     int
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionName        string
+	Title               string
+	Description         string
+	StatusName          string
+	AuthorName          string
+	AuthorEmail         string
+	AssigneeName        string
+	AssigneeEmail       string
+	CreatedAt           time.Time
+}
+
+func (repo *Repository) GetAdminTickets(
+	ctx context.Context,
+	dormitoryID *int64,
+) ([]AdminTicket, error) {
+	var dormitoryFilter any
+	if dormitoryID != nil {
+		dormitoryFilter = *dormitoryID
+	}
+
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			t.id,
+			d.number,
+			t.block_number,
+			t.room_letter,
+			COALESCE(t.location_description, ''),
+			p.name,
+			t.title,
+			t.description,
+			s.name,
+			CONCAT_WS(' ', author.last_name, author.first_name, author.middle_name),
+			author.email,
+			COALESCE(
+				CONCAT_WS(' ', executor.last_name, executor.first_name, executor.middle_name),
+				''
+			),
+			COALESCE(executor.email, ''),
+			t.created_at
+		FROM tickets t
+		JOIN users author ON author.id = t.author_id
+		LEFT JOIN users executor ON executor.id = t.assignee_id
+		JOIN dormitories d ON d.id = t.dormitory_id
+		JOIN positions p ON p.id = t.position_id
+		JOIN ticket_statuses s ON s.id = t.status_id
+		WHERE $1::BIGINT IS NULL OR t.dormitory_id = $1
+		ORDER BY t.created_at DESC, t.id DESC
+	`, dormitoryFilter)
+	if err != nil {
+		return nil, fmt.Errorf("получить административный список заявок: %w", err)
+	}
+	defer rows.Close()
+
+	tickets := make([]AdminTicket, 0)
+	for rows.Next() {
+		var ticket AdminTicket
+
+		err := rows.Scan(
+			&ticket.ID,
+			&ticket.DormitoryNumber,
+			&ticket.BlockNumber,
+			&ticket.RoomLetter,
+			&ticket.LocationDescription,
+			&ticket.PositionName,
+			&ticket.Title,
+			&ticket.Description,
+			&ticket.StatusName,
+			&ticket.AuthorName,
+			&ticket.AuthorEmail,
+			&ticket.AssigneeName,
+			&ticket.AssigneeEmail,
+			&ticket.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать заявку для администратора: %w", err)
+		}
+
+		tickets = append(tickets, ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("обойти административный список заявок: %w", err)
+	}
+
+	return tickets, nil
+}

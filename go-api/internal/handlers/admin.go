@@ -248,3 +248,67 @@ func (h *Handler) ListExecutors(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ошибка отправки списка исполнителей: %v", err)
 	}
 }
+
+type adminTicketResponse struct {
+	ID                  int64     `json:"id"`
+	DormitoryNumber     int       `json:"dormitory_number"`
+	BlockNumber         int       `json:"block_number"`
+	RoomLetter          string    `json:"room_letter"`
+	LocationDescription string    `json:"location_description"`
+	PositionName        string    `json:"position_name"`
+	Title               string    `json:"title"`
+	Description         string    `json:"description"`
+	StatusName          string    `json:"status"`
+	AuthorName          string    `json:"author_name"`
+	AuthorEmail         string    `json:"author_email"`
+	AssigneeName        string    `json:"assignee_name"`
+	AssigneeEmail       string    `json:"assignee_email"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+func (h *Handler) ListAdminTickets(w http.ResponseWriter, r *http.Request) {
+	managerID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	tickets, err := h.adminService.ListTickets(ctx, managerID)
+	if errors.Is(err, service.ErrForbidden) {
+		writeJSONError(w, http.StatusForbidden, "недостаточно прав")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения списка заявок администратора: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось получить список заявок")
+		return
+	}
+
+	response := make([]adminTicketResponse, 0, len(tickets))
+	for _, ticket := range tickets {
+		response = append(response, adminTicketResponse{
+			ID:                  ticket.ID,
+			DormitoryNumber:     ticket.DormitoryNumber,
+			BlockNumber:         ticket.BlockNumber,
+			RoomLetter:          ticket.RoomLetter,
+			LocationDescription: ticket.LocationDescription,
+			PositionName:        ticket.PositionName,
+			Title:               ticket.Title,
+			Description:         ticket.Description,
+			StatusName:          ticket.StatusName,
+			AuthorName:          ticket.AuthorName,
+			AuthorEmail:         ticket.AuthorEmail,
+			AssigneeName:        ticket.AssigneeName,
+			AssigneeEmail:       ticket.AssigneeEmail,
+			CreatedAt:           ticket.CreatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки списка заявок администратора: %v", err)
+	}
+}
