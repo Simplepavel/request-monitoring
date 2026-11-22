@@ -261,3 +261,34 @@ func (repo *Repository) DeactivateExecutor(
 
 	return nil
 }
+
+type ExecutorActivation struct {
+	UserID      int64
+	DormitoryID int64
+}
+
+func (repo *Repository) ActivateExecutor(
+	ctx context.Context,
+	activation ExecutorActivation,
+) error {
+	tag, err := repo.db.Exec(ctx, `
+		UPDATE executor_profiles
+		SET is_active = TRUE,
+		    deactivated_at = NULL
+		WHERE user_id = $1
+		  AND dormitory_id = $2
+		  AND is_active = FALSE
+	`,
+		activation.UserID,
+		activation.DormitoryID,
+	)
+	if err != nil {
+		return fmt.Errorf("активировать профиль исполнителя: %w", err)
+	}
+
+	if tag.RowsAffected() != 1 {
+		return ErrExecutorUnavailable
+	}
+
+	return nil
+}

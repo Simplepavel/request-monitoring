@@ -144,6 +144,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.DeactivateExecutor)),
 	)
 
+	mux.Handle(
+		"POST /admin/executors/activate",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ActivateExecutor)),
+	)
+
 	startTicketAutoCloser(ticketService)
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
