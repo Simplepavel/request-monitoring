@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"log"
 	"net/http"
 	"net/mail"
-	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"regexp"
 	"strings"
 	"time"
@@ -126,7 +126,7 @@ func (h *Handler) RegisterResident(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-	
+
 	if err != nil {
 		log.Printf("ошибка регистрации жителя: %v", err)
 		writeJSONError(
@@ -211,24 +211,29 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
-type currentUserResponse struct {
-	UserID int64 `json:"user_id"`
-}
-
 func (h *Handler) CurrentUser(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {
-		writeJSONError(w, http.StatusInternalServerError, "не удалось определить пользователя")
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	user, err := h.authService.GetCurrentUser(ctx, userID)
+	if errors.Is(err, service.ErrInvalidToken) {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения профиля пользователя: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "Не удалось получить профиль пользователя")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-
-	err := json.NewEncoder(w).Encode(currentUserResponse{
-		UserID: userID,
-	})
-	if err != nil {
-		log.Printf("Ошибка отправки ответа: %v", err)
+	if err := json.NewEncoder(w).Encode(user); err != nil {
+		log.Printf("ошибка отправки профиля пользователя: %v", err)
 	}
 }

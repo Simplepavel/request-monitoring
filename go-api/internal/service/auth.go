@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var(
+var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
 	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrInvalidToken = errors.New("invalid token")
+	ErrInvalidToken       = errors.New("invalid token")
 )
 
 type AuthService struct {
@@ -133,7 +133,6 @@ func (service *AuthService) createAccessToken(userID int64) (string, error) {
 	return tokenString, nil
 }
 
-
 func (service *AuthService) UserIDFromAccessToken(tokenString string) (int64, error) {
 	claims := &accessTokenClaims{}
 
@@ -156,4 +155,23 @@ func (service *AuthService) UserIDFromAccessToken(tokenString string) (int64, er
 	}
 
 	return claims.UserID, nil
+}
+
+func (service *AuthService) GetCurrentUser(
+	ctx context.Context,
+	userID int64,
+) (repository.CurrentUser, error) {
+	if userID <= 0 {
+		return repository.CurrentUser{}, ErrInvalidToken
+	}
+
+	user, err := service.repo.GetCurrentUser(ctx, userID)
+	if err != nil {
+		return repository.CurrentUser{}, fmt.Errorf(
+			"получить профиль текущего пользователя: %w",
+			err,
+		)
+	}
+
+	return user, nil
 }

@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/Simplepavel/request-monitoring/go-api/internal/handlers"
+	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
 	"github.com/Simplepavel/request-monitoring/go-api/internal/service"
-
-	"github.com/Simplepavel/request-monitoring/go-api/internal/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -60,27 +59,37 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /health", h.Health)
 	mux.HandleFunc("GET /dormitories", h.GetDormitories)
 	mux.HandleFunc("GET /positions", h.GetPositions)
 	mux.HandleFunc("POST /auth/register", h.RegisterResident)
-
 	mux.HandleFunc("POST /auth/login", h.Login)
 
 	mux.Handle(
 		"GET /auth/me",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.CurrentUser)),
 	)
-	log.Println("HTTP-сервер запущен на порту", port)
 
 	mux.Handle(
 		"POST /admin/executors",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignExecutor)),
 	)
-
 	mux.Handle(
 		"POST /admin/admins",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.AssignAdmin)),
+	)
+	mux.Handle(
+		"GET /admin/executors",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ListExecutors)),
+	)
+	mux.Handle(
+		"POST /admin/executors/deactivate",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.DeactivateExecutor)),
+	)
+	mux.Handle(
+		"POST /admin/executors/activate",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ActivateExecutor)),
 	)
 
 	mux.Handle(
@@ -92,71 +101,59 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAvailableTickets)),
 	)
 	mux.Handle(
+		"GET /tickets/assigned",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAssignedTickets)),
+	)
+	mux.Handle(
+		"GET /tickets/my",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetResidentTickets)),
+	)
+	mux.Handle(
+		"GET /tickets/{id}/history",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketHistory)),
+	)
+	mux.Handle(
 		"POST /tickets/{id}/accept",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.AcceptTicket)),
 	)
-
 	mux.Handle(
 		"POST /tickets/{id}/complete",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.CompleteTicket)),
 	)
-
 	mux.Handle(
 		"POST /tickets/{id}/confirm",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ConfirmTicket)),
 	)
-
 	mux.Handle(
 		"POST /tickets/{id}/return",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ReturnTicketForRework)),
 	)
 	mux.Handle(
-		"GET /tickets/assigned",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.GetAssignedTickets)),
-	)
-	mux.Handle(
 		"POST /tickets/{id}/resume",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ResumeTicket)),
 	)
-
 	mux.Handle(
 		"POST /tickets/{id}/reject",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.RejectTicket)),
 	)
-
 	mux.Handle(
 		"POST /tickets/{id}/resubmit",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ResubmitTicket)),
 	)
 
-	mux.Handle(
-		"GET /tickets/my",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.GetResidentTickets)),
-	)
+	frontendOrigin := os.Getenv("FRONTEND_ORIGIN")
+	if frontendOrigin == "" {
+		frontendOrigin = "http://localhost:5173"
+	}
 
-	mux.Handle(
-		"GET /tickets/{id}/history",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketHistory)),
-	)
-
-	mux.Handle(
-		"POST /admin/executors/deactivate",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.DeactivateExecutor)),
-	)
-
-	mux.Handle(
-		"POST /admin/executors/activate",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.ActivateExecutor)),
-	)
-	mux.Handle(
-		"GET /admin/executors",
-		middleware.RequireAuth(authService, http.HandlerFunc(h.ListExecutors)),
-	)
+	handler := middleware.CORS(frontendOrigin, mux)
 
 	startTicketAutoCloser(ticketService)
-	err = http.ListenAndServe(":"+port, mux)
+	log.Println("HTTP-сервер запущен на порту", port)
+
+	err = http.ListenAndServe(":"+port, handler)
 	if err != nil {
-		log.Fatal("Ошибка HTTP-се рвера: ", err)
+		log.Fatal("Ошибка HTTP-сервера: ", err)
 	}
 }
 
