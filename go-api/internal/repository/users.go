@@ -49,13 +49,13 @@ func (repo *Repository) CreateResident(ctx context.Context, user NewResident) (i
 	).Scan(&userID)
 	if err != nil {
 		var pgErr *pgconn.PgError
-	
+
 		if errors.As(err, &pgErr) &&
 			pgErr.Code == "23505" &&
 			pgErr.ConstraintName == "users_email_key" {
 			return 0, ErrEmailAlreadyExists
 		}
-	
+
 		return 0, fmt.Errorf("создать пользователя: %w", err)
 	}
 
@@ -107,3 +107,66 @@ func (repo *Repository) GetUserCredentialsByEmail(
 	return user, nil
 }
 
+type CurrentUser struct {
+	ID            int64    `json:"user_id"`
+	LastName      string   `json:"last_name"`
+	FirstName     string   `json:"first_name"`
+	MiddleName    string   `json:"middle_name"`
+	Phone         string   `json:"phone"`
+	Email         string   `json:"email"`
+	Roles         []string `json:"roles"`
+	AccountActive bool     `json:"account_active"`
+}
+
+func (repo *Repository) GetCurrentUser(
+	ctx context.Context,
+	userID int64,
+) (CurrentUser, error) {
+	var user CurrentUser
+
+	err := repo.db.QueryRow(ctx, `
+		SELECT
+			u.id,
+			u.last_name,
+			u.first_name,
+			COALESCE(u.middle_name, ''),
+			u.phone,
+			u.email,
+			u.is_active,
+			COALESCE(
+				(
+					SELECT array_agg(r.name::text ORDER BY r.name)
+					FROM user_roles ur
+					JOIN roles r ON r.id = ur.role_id
+					WHERE ur.user_id = u.id
+					  AND u.is_active
+					  AND (
+						r.name = 'resident'
+						OR (r.name = 'executor' AND ep.is_active)
+						OR (r.name = 'admin' AND ap.is_active)
+						OR (r.name = 'super_admin' AND sap.is_active)
+					  )
+				),
+				ARRAY[]::text[]
+			)
+		FROM users u
+		LEFT JOIN executor_profiles ep ON ep.user_id = u.id
+		LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+		LEFT JOIN super_admin_profiles sap ON sap.user_id = u.id
+		WHERE u.id = $1
+	`, userID).Scan(
+		&user.ID,
+		&user.LastName,
+		&user.FirstName,
+		&user.MiddleName,
+		&user.Phone,
+		&user.Email,
+		&user.AccountActive,
+		&user.Roles,
+	)
+	if err != nil {
+		return CurrentUser{}, fmt.Errorf("получить текущего пользователя: %w", err)
+	}
+
+	return user, nil
+}
