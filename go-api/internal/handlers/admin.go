@@ -221,3 +221,30 @@ func (h *Handler) ActivateExecutor(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) ListExecutors(w http.ResponseWriter, r *http.Request) {
+	managerID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "Необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	executors, err := h.adminService.ListExecutors(ctx, managerID)
+	if errors.Is(err, service.ErrForbidden) {
+		writeJSONError(w, http.StatusForbidden, "недостаточно прав")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения списка исполнителей: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось получить список исполнителей")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(executors); err != nil {
+		log.Printf("ошибка отправки списка исполнителей: %v", err)
+	}
+}

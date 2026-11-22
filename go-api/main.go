@@ -148,6 +148,10 @@ func main() {
 		"POST /admin/executors/activate",
 		middleware.RequireAuth(authService, http.HandlerFunc(h.ActivateExecutor)),
 	)
+	mux.Handle(
+		"GET /admin/executors",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.ListExecutors)),
+	)
 
 	startTicketAutoCloser(ticketService)
 	err = http.ListenAndServe(":"+port, mux)

@@ -292,3 +292,117 @@ func (repo *Repository) ActivateExecutor(
 
 	return nil
 }
+
+type ExecutorListItem struct {
+	UserID        int64  `json:"user_id"`
+	LastName      string `json:"last_name"`
+	FirstName     string `json:"first_name"`
+	MiddleName    string `json:"middle_name"`
+	Phone         string `json:"phone"`
+	Email         string `json:"email"`
+	DormitoryID   int64  `json:"dormitory_id"`
+	Dormitory     int    `json:"dormitory_number"`
+	PositionID    int64  `json:"position_id"`
+	Position      string `json:"position_name"`
+	IsActive      bool   `json:"is_active"`
+	AccountActive bool   `json:"account_active"`
+}
+
+func (repo *Repository) ListExecutors(
+	ctx context.Context,
+	dormitoryID *int64,
+) ([]ExecutorListItem, error) {
+	var dormitoryFilter any
+	if dormitoryID != nil {
+		dormitoryFilter = *dormitoryID
+	}
+
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			ep.user_id,
+			u.last_name,
+			u.first_name,
+			COALESCE(u.middle_name, ''),
+			u.phone,
+			u.email,
+			ep.dormitory_id,
+			d.number,
+			ep.position_id,
+			p.name,
+			ep.is_active,
+			u.is_active
+		FROM executor_profiles ep
+		JOIN users u ON u.id = ep.user_id
+		JOIN dormitories d ON d.id = ep.dormitory_id
+		JOIN positions p ON p.id = ep.position_id
+		WHERE $1::BIGINT IS NULL OR ep.dormitory_id = $1
+		ORDER BY d.number, p.name, u.last_name, u.first_name, ep.user_id
+	`, dormitoryFilter)
+	if err != nil {
+		return nil, fmt.Errorf("получить список исполнителей: %w", err)
+	}
+	defer rows.Close()
+
+	executors := make([]ExecutorListItem, 0)
+	for rows.Next() {
+		var executor ExecutorListItem
+
+		err := rows.Scan(
+			&executor.UserID,
+			&executor.LastName,
+			&executor.FirstName,
+			&executor.MiddleName,
+			&executor.Phone,
+			&executor.Email,
+			&executor.DormitoryID,
+			&executor.Dormitory,
+			&executor.PositionID,
+			&executor.Position,
+			&executor.IsActive,
+			&executor.AccountActive,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("прочитать исполнителя: %w", err)
+		}
+
+		executors = append(executors, executor)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("обойти список исполнителей: %w", err)
+	}
+
+	return executors, nil
+}
+
+func (repo *Repository) GetActiveAdminDormitoryID(
+	ctx context.Context,
+	managerID int64,
+) (int64, bool, error) {
+	var dormitoryID int64
+
+	err := repo.db.QueryRow(ctx, `
+		SELECT COALESCE(
+			(
+				SELECT ap.dormitory_id
+				FROM admin_profiles ap
+				JOIN user_roles ur ON ur.user_id = ap.user_id
+				JOIN roles r ON r.id = ur.role_id
+				WHERE ap.user_id = $1
+				  AND ap.is_active
+				  AND r.name = 'admin'
+				LIMIT 1
+			),
+			0
+		)
+	`, managerID).Scan(&dormitoryID)
+	if err != nil {
+		return 0, false, fmt.Errorf("получить общежитие администратора: %w", err)
+	}
+
+	if dormitoryID == 0 {
+		return 0, false, nil
+	}
+
+	return dormitoryID, true, nil
+}

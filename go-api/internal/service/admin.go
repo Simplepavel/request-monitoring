@@ -128,3 +128,28 @@ func (service *AdminService) ActivateExecutor(
 
 	return nil
 }
+
+func (service *AdminService) ListExecutors(
+	ctx context.Context,
+	managerID int64,
+) ([]repository.ExecutorListItem, error) {
+	isSuperAdmin, err := service.repo.IsActiveSuperAdmin(ctx, managerID)
+	if err != nil {
+		return nil, fmt.Errorf("проверить права супер-администратора: %w", err)
+	}
+
+	if isSuperAdmin {
+		return service.repo.ListExecutors(ctx, nil)
+	}
+
+	dormitoryID, isAdmin, err := service.repo.GetActiveAdminDormitoryID(ctx, managerID)
+	if err != nil {
+		return nil, fmt.Errorf("получить общежитие администратора: %w", err)
+	}
+
+	if !isAdmin {
+		return nil, ErrForbidden
+	}
+
+	return service.repo.ListExecutors(ctx, &dormitoryID)
+}
