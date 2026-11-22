@@ -153,3 +153,32 @@ func (service *AdminService) ListExecutors(
 
 	return service.repo.ListExecutors(ctx, &dormitoryID)
 }
+
+func (service *AdminService) ListTickets(
+	ctx context.Context,
+	managerID int64,
+) ([]repository.AdminTicket, error) {
+	if managerID <= 0 {
+		return nil, ErrForbidden
+	}
+
+	isSuperAdmin, err := service.repo.IsActiveSuperAdmin(ctx, managerID)
+	if err != nil {
+		return nil, fmt.Errorf("проверить права супер-администратора: %w", err)
+	}
+
+	if isSuperAdmin {
+		return service.repo.GetAdminTickets(ctx, nil)
+	}
+
+	dormitoryID, isAdmin, err := service.repo.GetActiveAdminDormitoryID(ctx, managerID)
+	if err != nil {
+		return nil, fmt.Errorf("получить общежитие администратора: %w", err)
+	}
+
+	if !isAdmin {
+		return nil, ErrForbidden
+	}
+
+	return service.repo.GetAdminTickets(ctx, &dormitoryID)
+}
