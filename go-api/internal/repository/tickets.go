@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"time"
 )
 
@@ -956,7 +957,7 @@ func (repo *Repository) GetResidentTickets(
 type TicketHistoryEvent struct {
 	FromStatus string
 	ToStatus   string
-	ChangedBy  int64
+	ChangedBy  *int64
 	Comment    string
 	ChangedAt  time.Time
 }
@@ -1176,4 +1177,125 @@ func (repo *Repository) GetAdminTickets(
 	}
 
 	return tickets, nil
+}
+
+type TicketDetails struct {
+	ID                  int64
+	DormitoryNumber     int
+	BlockNumber         int
+	RoomLetter          string
+	LocationDescription string
+	PositionName        string
+	Title               string
+	Description         string
+	StatusName          string
+	AuthorID            int64
+	AuthorName          string
+	AuthorEmail         string
+	AssigneeID          *int64
+	AssigneeName        string
+	AssigneeEmail       string
+	CreatedAt           time.Time
+	FinishedAt          *time.Time
+}
+
+func (repo *Repository) GetTicketDetails(
+	ctx context.Context,
+	ticketID int64,
+	userID int64,
+) (TicketDetails, error) {
+	var ticket TicketDetails
+
+	err := repo.db.QueryRow(ctx, `
+		SELECT
+			t.id,
+			d.number,
+			t.block_number,
+			COALESCE(t.room_letter::text, ''),
+			COALESCE(t.location_description, ''),
+			p.name,
+			COALESCE(t.title, ''),
+			t.description,
+			s.name,
+			author.id,
+			CONCAT_WS(' ', author.last_name, author.first_name, author.middle_name),
+			author.email,
+			assignee.id,
+			COALESCE(
+				CONCAT_WS(' ', assignee.last_name, assignee.first_name, assignee.middle_name),
+				''
+			),
+			COALESCE(assignee.email, ''),
+			t.created_at,
+			t.finished_at
+		FROM tickets t
+		JOIN users author ON author.id = t.author_id
+		LEFT JOIN users assignee ON assignee.id = t.assignee_id
+		JOIN dormitories d ON d.id = t.dormitory_id
+		JOIN positions p ON p.id = t.position_id
+		JOIN ticket_statuses s ON s.id = t.status_id
+		WHERE t.id = $1
+		  AND (
+			t.author_id = $2
+			OR t.assignee_id = $2
+			OR EXISTS (
+				SELECT 1
+				FROM admin_profiles ap
+				JOIN user_roles ur ON ur.user_id = ap.user_id
+				JOIN roles r ON r.id = ur.role_id
+				WHERE ap.user_id = $2
+				  AND ap.dormitory_id = t.dormitory_id
+				  AND ap.is_active
+				  AND r.name = 'admin'
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM super_admin_profiles sap
+				JOIN user_roles ur ON ur.user_id = sap.user_id
+				JOIN roles r ON r.id = ur.role_id
+				WHERE sap.user_id = $2
+				  AND sap.is_active
+				  AND r.name = 'super_admin'
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM executor_profiles ep
+				JOIN user_roles ur ON ur.user_id = ep.user_id
+				JOIN roles r ON r.id = ur.role_id
+				WHERE ep.user_id = $2
+				  AND ep.is_active
+				  AND ep.dormitory_id = t.dormitory_id
+				  AND ep.position_id = t.position_id
+				  AND t.assignee_id IS NULL
+				  AND s.name = 'pending_review'
+				  AND r.name = 'executor'
+			)
+		  )
+	`, ticketID, userID).Scan(
+		&ticket.ID,
+		&ticket.DormitoryNumber,
+		&ticket.BlockNumber,
+		&ticket.RoomLetter,
+		&ticket.LocationDescription,
+		&ticket.PositionName,
+		&ticket.Title,
+		&ticket.Description,
+		&ticket.StatusName,
+		&ticket.AuthorID,
+		&ticket.AuthorName,
+		&ticket.AuthorEmail,
+		&ticket.AssigneeID,
+		&ticket.AssigneeName,
+		&ticket.AssigneeEmail,
+		&ticket.CreatedAt,
+		&ticket.FinishedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TicketDetails{}, ErrTicketUnavailable
+	}
+	if err != nil {
+		return TicketDetails{}, fmt.Errorf("получить подробности заявки: %w", err)
+	}
+
+	return ticket, nil
 }
