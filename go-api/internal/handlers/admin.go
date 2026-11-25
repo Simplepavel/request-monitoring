@@ -312,3 +312,59 @@ func (h *Handler) ListAdminTickets(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ошибка отправки списка заявок администратора: %v", err)
 	}
 }
+
+type searchUserResponse struct {
+	UserID     int64    `json:"user_id"`
+	LastName   string   `json:"last_name"`
+	FirstName  string   `json:"first_name"`
+	MiddleName string   `json:"middle_name"`
+	Email      string   `json:"email"`
+	Roles      []string `json:"roles"`
+}
+
+func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	managerID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	users, err := h.adminService.SearchUsers(
+		ctx,
+		managerID,
+		r.URL.Query().Get("q"),
+	)
+	if errors.Is(err, service.ErrInvalidUserSearch) {
+		writeJSONError(w, http.StatusBadRequest, "Введите от 2 до 100 символов для поиска")
+		return
+	}
+	if errors.Is(err, service.ErrForbidden) {
+		writeJSONError(w, http.StatusForbidden, "недостаточно прав")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка поиска пользователей: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось найти пользователей")
+		return
+	}
+
+	response := make([]searchUserResponse, 0, len(users))
+	for _, user := range users {
+		response = append(response, searchUserResponse{
+			UserID:     user.ID,
+			LastName:   user.LastName,
+			FirstName:  user.FirstName,
+			MiddleName: user.MiddleName,
+			Email:      user.Email,
+			Roles:      user.Roles,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки результатов поиска пользователей: %v", err)
+	}
+}

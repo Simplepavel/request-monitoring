@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/Simplepavel/request-monitoring/go-api/internal/repository"
+	"strings"
+	"unicode/utf8"
 )
 
 var (
 	ErrForbidden                = errors.New("недостаточно прав")
 	ErrCannotDeactivateExecutor = errors.New("исполнителя нельзя деактивировать")
 	ErrCannotActivateExecutor   = errors.New("исполнителя нельзя активировать")
+	ErrInvalidUserSearch        = errors.New("неверный поиск пользователя")
 )
 
 type AdminService struct {
@@ -181,4 +183,42 @@ func (service *AdminService) ListTickets(
 	}
 
 	return service.repo.GetAdminTickets(ctx, &dormitoryID)
+}
+
+func (service *AdminService) SearchUsers(
+	ctx context.Context,
+	managerID int64,
+	query string,
+) ([]repository.SearchUserResult, error) {
+	if managerID <= 0 {
+		return nil, ErrForbidden
+	}
+
+	query = strings.TrimSpace(query)
+	queryLength := utf8.RuneCountInString(query)
+	if queryLength < 2 || queryLength > 100 {
+		return nil, ErrInvalidUserSearch
+	}
+
+	isSuperAdmin, err := service.repo.IsActiveSuperAdmin(ctx, managerID)
+	if err != nil {
+		return nil, fmt.Errorf("проверить права супер-администратора: %w", err)
+	}
+
+	if !isSuperAdmin {
+		_, isAdmin, err := service.repo.GetActiveAdminDormitoryID(ctx, managerID)
+		if err != nil {
+			return nil, fmt.Errorf("проверить права администратора: %w", err)
+		}
+		if !isAdmin {
+			return nil, ErrForbidden
+		}
+	}
+
+	users, err := service.repo.SearchUsers(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("найти пользователей: %w", err)
+	}
+
+	return users, nil
 }
