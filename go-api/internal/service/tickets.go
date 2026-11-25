@@ -20,6 +20,7 @@ var (
 	ErrCannotRejectTicket          = errors.New("ticket cannot be rejected")
 	ErrCannotResubmitTicket        = errors.New("ticket cannot be resubmitted")
 	ErrCannotViewTicketHistory     = errors.New("ticket history is unavailable")
+	ErrCannotViewTicketDetails     = errors.New("ticket details are unavailable")
 )
 
 type TicketService struct {
@@ -350,4 +351,24 @@ func (service *TicketService) AutoCloseExpiredTickets(
 	}
 
 	return closedCount, nil
+}
+
+func (service *TicketService) GetTicketDetails(
+	ctx context.Context,
+	userID int64,
+	ticketID int64,
+) (repository.TicketDetails, error) {
+	if userID <= 0 || ticketID <= 0 {
+		return repository.TicketDetails{}, ErrInvalidTicket
+	}
+
+	ticket, err := service.repo.GetTicketDetails(ctx, ticketID, userID)
+	if errors.Is(err, repository.ErrTicketUnavailable) {
+		return repository.TicketDetails{}, ErrCannotViewTicketDetails
+	}
+	if err != nil {
+		return repository.TicketDetails{}, fmt.Errorf("получить подробности заявки: %w", err)
+	}
+
+	return ticket, nil
 }

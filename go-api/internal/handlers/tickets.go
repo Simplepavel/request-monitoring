@@ -542,7 +542,7 @@ func (h *Handler) GetResidentTickets(w http.ResponseWriter, r *http.Request) {
 type ticketHistoryEventResponse struct {
 	FromStatus string    `json:"from_status"`
 	ToStatus   string    `json:"to_status"`
-	ChangedBy  int64     `json:"changed_by"`
+	ChangedBy  *int64    `json:"changed_by"`
 	Comment    string    `json:"comment"`
 	ChangedAt  time.Time `json:"changed_at"`
 }
@@ -592,5 +592,82 @@ func (h *Handler) GetTicketHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("ошибка отправки истории заявки: %v", err)
+	}
+}
+
+type ticketDetailsResponse struct {
+	ID                  int64      `json:"id"`
+	DormitoryNumber     int        `json:"dormitory_number"`
+	BlockNumber         int        `json:"block_number"`
+	RoomLetter          string     `json:"room_letter"`
+	LocationDescription string     `json:"location_description"`
+	PositionName        string     `json:"position_name"`
+	Title               string     `json:"title"`
+	Description         string     `json:"description"`
+	Status              string     `json:"status"`
+	AuthorID            int64      `json:"author_id"`
+	AuthorName          string     `json:"author_name"`
+	AuthorEmail         string     `json:"author_email"`
+	AssigneeID          *int64     `json:"assignee_id"`
+	AssigneeName        string     `json:"assignee_name"`
+	AssigneeEmail       string     `json:"assignee_email"`
+	CreatedAt           time.Time  `json:"created_at"`
+	FinishedAt          *time.Time `json:"finished_at"`
+}
+
+func (h *Handler) GetTicketDetails(w http.ResponseWriter, r *http.Request) {
+	ticketID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || ticketID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "необходим вход в систему")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	ticket, err := h.ticketService.GetTicketDetails(ctx, userID, ticketID)
+	if errors.Is(err, service.ErrInvalidTicket) {
+		writeJSONError(w, http.StatusBadRequest, "некорректный ID заявки")
+		return
+	}
+	if errors.Is(err, service.ErrCannotViewTicketDetails) {
+		writeJSONError(w, http.StatusNotFound, "заявка не найдена")
+		return
+	}
+	if err != nil {
+		log.Printf("ошибка получения подробностей заявки: %v", err)
+		writeJSONError(w, http.StatusInternalServerError, "не удалось получить заявку")
+		return
+	}
+
+	response := ticketDetailsResponse{
+		ID:                  ticket.ID,
+		DormitoryNumber:     ticket.DormitoryNumber,
+		BlockNumber:         ticket.BlockNumber,
+		RoomLetter:          ticket.RoomLetter,
+		LocationDescription: ticket.LocationDescription,
+		PositionName:        ticket.PositionName,
+		Title:               ticket.Title,
+		Description:         ticket.Description,
+		Status:              ticket.StatusName,
+		AuthorID:            ticket.AuthorID,
+		AuthorName:          ticket.AuthorName,
+		AuthorEmail:         ticket.AuthorEmail,
+		AssigneeID:          ticket.AssigneeID,
+		AssigneeName:        ticket.AssigneeName,
+		AssigneeEmail:       ticket.AssigneeEmail,
+		CreatedAt:           ticket.CreatedAt,
+		FinishedAt:          ticket.FinishedAt,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("ошибка отправки подробностей заявки: %v", err)
 	}
 }
