@@ -170,3 +170,78 @@ func (repo *Repository) GetCurrentUser(
 
 	return user, nil
 }
+
+type SearchUserResult struct {
+	ID         int64
+	LastName   string
+	FirstName  string
+	MiddleName string
+	Email      string
+	Roles      []string
+}
+
+func (repo *Repository) SearchUsers(
+	ctx context.Context,
+	query string,
+) ([]SearchUserResult, error) {
+	rows, err := repo.db.Query(ctx, `
+		SELECT
+			u.id,
+			u.last_name,
+			u.first_name,
+			COALESCE(u.middle_name, ''),
+			u.email,
+			COALESCE((
+				SELECT array_agg(r.name::text ORDER BY r.name)
+				FROM user_roles ur
+				JOIN roles r ON r.id = ur.role_id
+				LEFT JOIN executor_profiles ep ON ep.user_id = ur.user_id
+				LEFT JOIN admin_profiles ap ON ap.user_id = ur.user_id
+				LEFT JOIN super_admin_profiles sap ON sap.user_id = ur.user_id
+				WHERE ur.user_id = u.id
+				  AND (
+					r.name = 'resident'
+					OR (r.name = 'executor' AND ep.is_active)
+					OR (r.name = 'admin' AND ap.is_active)
+					OR (r.name = 'super_admin' AND sap.is_active)
+				  )
+			), ARRAY[]::text[])
+		FROM users u
+		WHERE u.is_active
+		  AND (
+			u.email ILIKE '%' || $1 || '%'
+			OR CONCAT_WS(' ', u.last_name, u.first_name, u.middle_name)
+				ILIKE '%' || $1 || '%'
+		  )
+		ORDER BY u.last_name, u.first_name, u.id
+		LIMIT 20
+	`, query)
+	if err != nil {
+		return nil, fmt.Errorf("найти пользователей: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]SearchUserResult, 0)
+	for rows.Next() {
+		var user SearchUserResult
+
+		if err := rows.Scan(
+			&user.ID,
+			&user.LastName,
+			&user.FirstName,
+			&user.MiddleName,
+			&user.Email,
+			&user.Roles,
+		); err != nil {
+			return nil, fmt.Errorf("прочитать найденного пользователя: %w", err)
+		}
+
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("обойти найденных пользователей: %w", err)
+	}
+
+	return users, nil
+}

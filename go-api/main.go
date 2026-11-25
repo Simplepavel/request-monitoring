@@ -150,6 +150,11 @@ func main() {
 		middleware.RequireAuth(authService, http.HandlerFunc(h.GetTicketDetails)),
 	)
 
+	mux.Handle(
+		"GET /admin/users",
+		middleware.RequireAuth(authService, http.HandlerFunc(h.SearchUsers)),
+	)
+
 	frontendOrigin := os.Getenv("FRONTEND_ORIGIN")
 	if frontendOrigin == "" {
 		frontendOrigin = "http://localhost:5173"
